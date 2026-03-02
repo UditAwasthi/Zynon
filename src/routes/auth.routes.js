@@ -20,7 +20,7 @@ router.post("/refresh", refreshTokenController);
 //Protected Routes
 
 
-router.post("/logout", protect, logout);
+router.post("/logout", logout);
 router.post("/logout-all", protect, logoutAll);
 
 export default router;

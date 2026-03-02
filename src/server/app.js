@@ -3,7 +3,6 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 
 import authRoutes from "../routes/auth.routes.js";
-
 import { errorHandler } from "../middleware/errorHandler.js";
 
 const app = express();
@@ -12,9 +11,16 @@ const app = express();
    Global Middlewares
 ========================= */
 
+// Allow ANY origin (dev mode) while supporting cookies
 app.use(cors({
-  origin: process.env.CLIENT_URL || "*",
-  credentials: true,
+   origin: function (origin, callback) {
+      // Allow requests without origin (Postman, curl)
+      if (!origin) return callback(null, true);
+
+      // Reflect request origin (allow all)
+      return callback(null, true);
+   },
+   credentials: true,
 }));
 
 app.use(express.json());
@@ -27,9 +33,8 @@ app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
 
-
 app.get("/", (req, res) => {
-  res.json({ message: "API running 🚀" });
+   res.json({ message: "API running 🚀" });
 });
 
 /* =========================

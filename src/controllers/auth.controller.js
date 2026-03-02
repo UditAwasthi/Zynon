@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/generateTokens.js";
 import { sendSuccess } from "../utils/apiResponse.js";
@@ -31,6 +32,21 @@ export const signup = asyncHandler(async (req, res) => {
 
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user);
+
+  const clientType = req.headers["x-client-type"] || "web";
+
+  if (clientType === "web") {
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: false, // local dev
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return sendSuccess(res, 201, "User registered successfully", {
+      accessToken,
+    });
+  }
 
   return sendSuccess(res, 201, "User registered successfully", {
     accessToken,
