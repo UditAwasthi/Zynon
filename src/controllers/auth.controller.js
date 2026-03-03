@@ -306,7 +306,7 @@ export const sendEmailVerification = asyncHandler(async (req, res) => {
 
 //VERIFY EMAIL
 export const verifyEmail = asyncHandler(async (req, res) => {
-  const { otp } = req.body;
+  const { otp ,email} = req.body;
 
   if (!otp) throw new ApiError(400, "OTP is required");
 
@@ -315,8 +315,6 @@ export const verifyEmail = asyncHandler(async (req, res) => {
     .update(otp)
     .digest("hex");
 
-
-  //fixed user lookup previous one could allow attackers to verify other emails with expiry within same timeframe by trying different OTPs
   const user = await User.findOne({
     email: email.toLowerCase(),
     emailVerificationExpires: { $gt: Date.now() }
