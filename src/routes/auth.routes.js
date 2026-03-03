@@ -6,7 +6,9 @@ import {
   logout,
   logoutAll,
   sendEmailVerification,
-  verifyEmail
+  verifyEmail,
+  forgotPassword,
+  resetPassword,
 } from "../controllers/auth.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 
@@ -20,6 +22,11 @@ router.post("/login", login);
 router.post("/refresh", refreshTokenController);
 router.post("/logout", logout);
 router.post("/verify-email", verifyEmail);
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
+
+
+
 //Protected Routes
 
 

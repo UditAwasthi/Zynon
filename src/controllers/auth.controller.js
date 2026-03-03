@@ -7,8 +7,8 @@ import { sendSuccess } from "../utils/apiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { sendEmail } from "../services/email.service.js";
-import { emailVerificationTemplate } from "../utils/emailTemplates.js";
-
+import { emailVerificationTemplate } from "../utils/templates/emailTemplates.js";
+import { passwordResetTemplate } from "../utils/templates/passresetTemplates.js";
 // User Registration function
 export const signup = asyncHandler(async (req, res) => {
   const { username, email, password } = req.body;
@@ -315,10 +315,12 @@ export const verifyEmail = asyncHandler(async (req, res) => {
     .update(otp)
     .digest("hex");
 
+
+  //fixed user lookup previous one could allow attackers to verify other emails with expiry within same timeframe by trying different OTPs
   const user = await User.findOne({
+    email: email.toLowerCase(),
     emailVerificationExpires: { $gt: Date.now() }
   }).select("+emailVerificationOTP +emailVerificationAttempts");
-
   if (!user) {
     throw new ApiError(400, "Invalid or expired OTP");
   }
@@ -344,3 +346,99 @@ export const verifyEmail = asyncHandler(async (req, res) => {
 
   return sendSuccess(res, 200, "Email verified successfully");
 });
+
+
+//Password Reset Request
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  if (!email) throw new ApiError(400, "Email is required");
+
+  const user = await User.findOne({ email: email.toLowerCase() })
+
+  if (!user) {
+    // To prevent email enumeration, respond with success even if user not found
+    return sendSuccess(res, 200, "If an account with that email exists, a reset link has been sent");
+  }
+
+  // Cooldown
+  if (
+    user.passwordResetResendAfter &&
+    user.passwordResetResendAfter > Date.now()
+  ) {
+    const secondsLeft = Math.ceil(
+      (user.passwordResetResendAfter - Date.now()) / 1000
+    );
+    throw new ApiError(429, `Please wait ${secondsLeft}s`);
+  }
+
+  //generate reset otp
+  const otp = crypto.randomInt(100000, 999999).toString();
+
+  const hashedOTP = crypto
+    .createHash("sha256")
+    .update(otp)
+    .digest("hex");
+
+  user.passwordResetOTP = hashedOTP;
+  user.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+  user.passwordResetAttempts = 0;
+  user.passwordResetResendAfter = Date.now() + 60 * 1000;
+  await user.save();
+
+  await sendEmail({
+    to: user.email,
+    subject: "Password Reset OTP",
+    html: passwordResetTemplate(otp)
+  });
+
+  return sendSuccess(res, 200, "If an account with that email exists, OTP has been sent");
+
+});
+
+//Password Reset
+export const resetPassword = asyncHandler(async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+
+  if (!email || !otp || !newPassword) {
+    throw new ApiError(400, "Email, OTP and new password are required");
+  }
+
+  const user = await User.findOne({
+    email: email.toLowerCase(),
+    passwordResetExpires: { $gt: Date.now() }
+  }).select("+passwordResetOTP +passwordResetAttempts");
+
+  if (!user) {
+    throw new ApiError(400, "Invalid or expired OTP");
+  }
+  if (user.passwordResetAttempts >= 5) {
+    throw new ApiError(429, "Too many failed attempts");
+  }
+
+
+  const hashedOTP = crypto
+    .createHash("sha256")
+    .update(otp)
+    .digest("hex");
+  if (user.passwordResetOTP !== hashedOTP) {
+    user.passwordResetAttempts += 1;
+    await user.save();
+    throw new ApiError(400, "Wrong OTP");
+  }
+
+
+  // Update password correctly
+  user.passwordHash = await bcrypt.hash(newPassword, 12);
+  user.passwordChangedAt = new Date();
+  user.refreshTokenVersion += 1;
+
+  // Clear reset fields
+  user.passwordResetOTP = undefined;
+  user.passwordResetExpires = undefined;
+  user.passwordResetAttempts = 0;
+
+  await user.save();
+
+  return sendSuccess(res, 200, "Password reset successfully");
+
+})

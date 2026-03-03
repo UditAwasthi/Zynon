@@ -29,7 +29,24 @@ const userSchema = new mongoose.Schema({
         required: true,
         select: false
     },
+    passwordResetOTP: {
+        type: String,
+        select: false
+    },
 
+    passwordResetExpires: {
+        type: Date,
+        select: false
+    },
+
+    passwordResetAttempts: {
+        type: Number,
+        default: 0
+    },
+
+    passwordResetResendAfter: {
+        type: Date
+    },
     passwordChangedAt: Date,
 
     refreshTokenVersion: {
