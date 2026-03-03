@@ -61,7 +61,22 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    emailVerificationOTP: {
+        type: String,
+        select: false
+    },
+    emailVerificationExpires: {
+        type: Date,
+        select: false
+    },
+    emailVerificationAttempts: {
+        type: Number,
+        default: 0
+    },
 
+    emailVerificationResendAfter: {
+        type: Date
+    },
     phoneVerified: {
         type: Boolean,
         default: false
@@ -71,7 +86,7 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ["active", "deactivated", "suspended", "shadow_banned", "deleted"],
         default: "active",
-      
+
     },
 
     suspensionReason: String,

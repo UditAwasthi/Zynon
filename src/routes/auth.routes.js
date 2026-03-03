@@ -5,6 +5,8 @@ import {
   refreshTokenController,
   logout,
   logoutAll,
+  sendEmailVerification,
+  verifyEmail
 } from "../controllers/auth.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 
@@ -16,11 +18,12 @@ const router = express.Router();
 router.post("/signup", signup);
 router.post("/login", login);
 router.post("/refresh", refreshTokenController);
-
+router.post("/logout", logout);
+router.post("/verify-email", verifyEmail);
 //Protected Routes
 
 
-router.post("/logout", logout);
+router.post("/send-email-verification",protect, sendEmailVerification);
 router.post("/logout-all", protect, logoutAll);
 
 export default router;

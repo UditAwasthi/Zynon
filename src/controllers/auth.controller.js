@@ -1,10 +1,13 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/generateTokens.js";
 import { sendSuccess } from "../utils/apiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { sendEmail } from "../services/email.service.js";
+import { emailVerificationTemplate } from "../utils/emailTemplates.js";
 
 // User Registration function
 export const signup = asyncHandler(async (req, res) => {
@@ -86,7 +89,9 @@ export const login = asyncHandler(async (req, res) => {
   if (!user) {
     throw new ApiError(401, "Invalid credentials");
   }
-
+  if (!user.emailVerified) {
+    throw new ApiError(403, "Please verify your email first");
+  }
   // Check Account Status
   if (user.status !== "active") {
     throw new ApiError(403, `Account is ${user.status}`);
@@ -248,4 +253,94 @@ export const logoutAll = asyncHandler(async (req, res) => {
   res.clearCookie("refreshToken");
 
   return sendSuccess(res, 200, "Logged out from all devices");
+});
+
+
+//SEND EMAIL VERIFICATION 
+
+export const sendEmailVerification = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user.id).select("+emailVerificationResendAfter");
+
+  if (!user) throw new ApiError(404, "User not found");
+
+  if (user.emailVerified) {
+    throw new ApiError(400, "Email already verified");
+  }
+
+  // 🔒 Cooldown Check
+  if (
+    user.emailVerificationResendAfter &&
+    user.emailVerificationResendAfter > Date.now()
+  ) {
+    const secondsLeft = Math.ceil(
+      (user.emailVerificationResendAfter - Date.now()) / 1000
+    );
+
+    throw new ApiError(429, `Please wait ${secondsLeft}s before requesting again`);
+  }
+
+  // Generate OTP
+  const otp = crypto.randomInt(100000, 999999).toString();
+
+  const hashedOTP = crypto
+    .createHash("sha256")
+    .update(otp)
+    .digest("hex");
+
+  user.emailVerificationOTP = hashedOTP;
+  user.emailVerificationExpires = Date.now() + 10 * 60 * 1000; // 10 min
+  user.emailVerificationAttempts = 0; // reset attempts
+  user.emailVerificationResendAfter = Date.now() + 60 * 1000; // 60s cooldown
+
+  await user.save();
+
+  await sendEmail({
+    to: user.email,
+    subject: "Your Verification OTP",
+    html: emailVerificationTemplate(otp)
+  });
+
+  return sendSuccess(res, 200, "OTP sent successfully");
+});
+
+
+//VERIFY EMAIL
+export const verifyEmail = asyncHandler(async (req, res) => {
+  const { otp } = req.body;
+
+  if (!otp) throw new ApiError(400, "OTP is required");
+
+  const hashedOTP = crypto
+    .createHash("sha256")
+    .update(otp)
+    .digest("hex");
+
+  const user = await User.findOne({
+    emailVerificationExpires: { $gt: Date.now() }
+  }).select("+emailVerificationOTP +emailVerificationAttempts");
+
+  if (!user) {
+    throw new ApiError(400, "Invalid or expired OTP");
+  }
+
+  // 🚨 Attempt Limit Check
+  if (user.emailVerificationAttempts >= 5) {
+    throw new ApiError(429, "Too many incorrect attempts. Request new OTP.");
+  }
+
+  if (user.emailVerificationOTP !== hashedOTP) {
+    user.emailVerificationAttempts += 1;
+    await user.save();
+    throw new ApiError(400, "Invalid OTP");
+  }
+
+  // Success
+  user.emailVerified = true;
+  user.emailVerificationOTP = undefined;
+  user.emailVerificationExpires = undefined;
+  user.emailVerificationAttempts = 0;
+
+  await user.save();
+
+  return sendSuccess(res, 200, "Email verified successfully");
 });
