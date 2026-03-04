@@ -1,21 +1,17 @@
 import cloudinary from "../config/cloudinary.js";
 
-export const uploadImage = (buffer) => {
+export const uploadImage = async (file) => {
 
-    return new Promise((resolve, reject) => {
+  const result = await cloudinary.uploader.upload(
+    `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
+    {
+      folder: "zynon/profile_photos",
+      transformation: [
+        { width: 500, height: 500, crop: "fill", gravity: "face" },
+        { quality: "auto", fetch_format: "auto" }
+      ]
+    }
+  );
 
-        const stream = cloudinary.uploader.upload_stream(
-            {
-                folder: "zynon/profile_photos"
-            },
-            (error, result) => {
-
-                if (error) return reject(error);
-
-                resolve(result);
-            }
-        );
-
-        stream.end(buffer);
-    });
+  return result;
 };

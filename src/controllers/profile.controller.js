@@ -81,15 +81,16 @@ export const updateProfilePhoto = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Image file is required");
     }
 
-    const result = await uploadImage(req.file.buffer);
+    const result = await uploadImage(req.file);
 
     const profile = await UserProfile.findOneAndUpdate(
         { user: req.user.id },
-        {
-            profilePicture: result.secure_url
-        },
+        { profilePicture: result.secure_url },
         { new: true }
-    ).populate("user", "username");
+    );
 
-    return sendSuccess(res, 200, "Profile photo updated", profile);
+    return sendSuccess(res, 200, "Profile photo updated", {
+        profilePicture: profile.profilePicture
+    });
+
 });
