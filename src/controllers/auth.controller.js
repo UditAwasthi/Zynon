@@ -311,7 +311,9 @@ export const logout = asyncHandler(async (req, res) => {
 
 export const logoutAll = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id);
-
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
   user.refreshTokenVersion += 1;
   user.currentRefreshTokenHash = null;
   await user.save();
@@ -326,7 +328,7 @@ export const logoutAll = asyncHandler(async (req, res) => {
 
 export const sendEmailVerification = asyncHandler(async (req, res) => {
   const { email } = req.body;
-
+  if (!email) throw new ApiError(400, "Email is required");
   const user = await User.findOne({ email: email.toLowerCase() })
     .select("+emailVerificationResendAfter");
 
@@ -348,7 +350,11 @@ export const sendEmailVerification = asyncHandler(async (req, res) => {
 
     throw new ApiError(429, `Please wait ${secondsLeft}s before requesting again`);
   }
+  const deleted = await deleteIfExpiredUnverified(user);
 
+  if (deleted) {
+    throw new ApiError(400, "Account expired. Please signup again.");
+  }
   // Generate OTP
   const otp = crypto.randomInt(100000, 999999).toString();
 
@@ -490,6 +496,7 @@ export const resetPassword = asyncHandler(async (req, res) => {
     .digest("hex");
   if (user.passwordResetOTP !== hashedOTP) {
     user.passwordResetAttempts += 1;
+
     await user.save();
     throw new ApiError(400, "Wrong OTP");
   }
@@ -499,7 +506,8 @@ export const resetPassword = asyncHandler(async (req, res) => {
   user.passwordHash = await bcrypt.hash(newPassword, 12);
   user.passwordChangedAt = new Date();
   user.refreshTokenVersion += 1;
-
+  user.loginAttempts = 0;
+  user.lockUntil = undefined;
   // Clear reset fields
   user.passwordResetOTP = undefined;
   user.passwordResetExpires = undefined;
