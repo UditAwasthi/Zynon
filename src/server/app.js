@@ -2,7 +2,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 
-import authRoutes from "../routes/auth.routes.js";
+
 import { errorHandler } from "../middleware/errorHandler.js";
 
 const app = express();
@@ -30,8 +30,11 @@ app.use(cookieParser());
 /* =========================
    Routes
 ========================= */
+import authRoutes from "../routes/auth.routes.js";
+import profileRoutes from "../routes/profile.routes.js";
 
 app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
 
 app.get("/", (req, res) => {
    res.json({ message: "API running 🚀" });

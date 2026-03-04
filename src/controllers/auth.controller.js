@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
+import UserProfile from "../models/userProfile.model.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/generateTokens.js";
 import { sendSuccess } from "../utils/apiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
@@ -418,6 +419,14 @@ export const verifyEmail = asyncHandler(async (req, res) => {
 
   await user.save();
 
+  // Create basic profile
+  const existingProfile = await UserProfile.findOne({ user: user._id });
+
+  if (!existingProfile) {
+  await UserProfile.create({
+    user: user._id
+  });
+}
   return sendSuccess(res, 200, "Email verified successfully");
 });
 
