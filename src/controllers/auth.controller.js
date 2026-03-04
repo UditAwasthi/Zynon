@@ -9,6 +9,19 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { sendEmail } from "../services/email.service.js";
 import { emailVerificationTemplate } from "../utils/templates/emailTemplates.js";
 import { passwordResetTemplate } from "../utils/templates/passresetTemplates.js";
+
+//Deletion Helper Function for stale unverified accounts
+const deleteIfExpiredUnverified = async (user) => {
+  if (
+    !user.emailVerified &&
+    user.emailVerificationExpires &&
+    user.emailVerificationExpires < Date.now()
+  ) {
+    await user.deleteOne();
+    return true; // means deleted
+  }
+  return false; // means not deleted
+};
 // User Registration function
 export const signup = asyncHandler(async (req, res) => {
   const { username, email, password } = req.body;
@@ -22,15 +35,23 @@ export const signup = asyncHandler(async (req, res) => {
   });
 
   if (existingUser) {
-    throw new ApiError(409, "User already exists");
+    const deleted = await deleteIfExpiredUnverified(existingUser);
+
+    if (!deleted) {
+      if (!existingUser.emailVerified) {
+        throw new ApiError(409, "Account exists but email not verified");
+      }
+
+      throw new ApiError(409, "User already exists");
+    }
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-
   const user = await User.create({
     username,
     email,
     passwordHash,
+    emailVerificationExpires: Date.now() + 15 * 60 * 1000, // 15 min window
   });
 
   const accessToken = generateAccessToken(user);
@@ -90,6 +111,15 @@ export const login = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Invalid credentials");
   }
   if (!user.emailVerified) {
+    const deleted = await deleteIfExpiredUnverified(user);
+
+    if (deleted) {
+      throw new ApiError(
+        400,
+        "Verification expired. Please signup again."
+      );
+    }
+
     throw new ApiError(403, "Please verify your email first");
   }
   // Check Account Status
@@ -231,17 +261,19 @@ export const refreshTokenController = asyncHandler(async (req, res) => {
 });
 
 //LOGOUT (Single Device)
-
 export const logout = asyncHandler(async (req, res) => {
   const clientType = req.headers["x-client-type"] || "web";
 
   if (clientType === "web") {
-    res.clearCookie("refreshToken");
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
   }
 
   return sendSuccess(res, 200, "Logged out successfully");
 });
-
 //LOGOUT ALL DEVICES
 
 export const logoutAll = asyncHandler(async (req, res) => {
@@ -259,7 +291,11 @@ export const logoutAll = asyncHandler(async (req, res) => {
 //SEND EMAIL VERIFICATION 
 
 export const sendEmailVerification = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select("+emailVerificationResendAfter");
+  const { email } = req.body;
+
+  const user = await User.findOne({ email: email.toLowerCase() })
+    .select("+emailVerificationResendAfter");
+
 
   if (!user) throw new ApiError(404, "User not found");
 
@@ -306,9 +342,9 @@ export const sendEmailVerification = asyncHandler(async (req, res) => {
 
 //VERIFY EMAIL
 export const verifyEmail = asyncHandler(async (req, res) => {
-  const { otp ,email} = req.body;
+  const { otp, email } = req.body;
 
-  if (!otp) throw new ApiError(400, "OTP is required");
+  if (!otp || !email) throw new ApiError(400, "OTP and email are required");
 
   const hashedOTP = crypto
     .createHash("sha256")
