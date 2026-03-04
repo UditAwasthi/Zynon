@@ -57,6 +57,14 @@ export const signup = asyncHandler(async (req, res) => {
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user);
 
+  // hash refresh token before saving
+  const refreshTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
+
+  user.currentRefreshTokenHash = refreshTokenHash;
+  await user.save();
   const clientType = req.headers["x-client-type"] || "web";
 
   if (clientType === "web") {
@@ -68,13 +76,10 @@ export const signup = asyncHandler(async (req, res) => {
     });
 
     return sendSuccess(res, 201, "User registered successfully", {
-      accessToken,
     });
   }
 
   return sendSuccess(res, 201, "User registered successfully", {
-    accessToken,
-    refreshToken,
   });
 });
 
@@ -166,6 +171,15 @@ export const login = asyncHandler(async (req, res) => {
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user);
 
+  // store refresh token hash
+  const refreshTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
+
+  user.currentRefreshTokenHash = refreshTokenHash;
+
+  await user.save();
   const clientType = req.headers["x-client-type"] || "web";
 
   if (clientType === "web") {
@@ -217,9 +231,16 @@ export const refreshTokenController = asyncHandler(async (req, res) => {
   } catch (error) {
     throw new ApiError(401, "Invalid or expired refresh token");
   }
+  const incomingTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
 
+  if (incomingTokenHash !== user.currentRefreshTokenHash) {
+    throw new ApiError(401, "Refresh token reuse detected");
+  }
   // Find user
-  const user = await User.findById(decoded.id);
+  const user = await User.findById(decoded.id).select("+currentRefreshTokenHash");;
 
   if (!user) {
     throw new ApiError(401, "User not found");
@@ -239,6 +260,14 @@ export const refreshTokenController = asyncHandler(async (req, res) => {
   const newAccessToken = generateAccessToken(user);
   const newRefreshToken = generateRefreshToken(user);
 
+  // rotate refresh token
+  const newHash = crypto
+    .createHash("sha256")
+    .update(newRefreshToken)
+    .digest("hex");
+
+  user.currentRefreshTokenHash = newHash;
+  await user.save();
   // Deliver tokens based on platform
   if (clientType === "web") {
     res.cookie("refreshToken", newRefreshToken, {
@@ -272,6 +301,10 @@ export const logout = asyncHandler(async (req, res) => {
     });
   }
 
+  await User.findByIdAndUpdate(req.user.id, {
+    currentRefreshTokenHash: null
+  });
+
   return sendSuccess(res, 200, "Logged out successfully");
 });
 //LOGOUT ALL DEVICES
@@ -280,6 +313,7 @@ export const logoutAll = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id);
 
   user.refreshTokenVersion += 1;
+  user.currentRefreshTokenHash = null;
   await user.save();
 
   res.clearCookie("refreshToken");

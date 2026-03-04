@@ -53,7 +53,10 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
-
+    currentRefreshTokenHash: {
+        type: String,
+        select: false
+    },
     loginAttempts: {
         type: Number,
         default: 0
@@ -122,7 +125,6 @@ const userSchema = new mongoose.Schema({
     timestamps: true,
     versionKey: false
 });
-
 userSchema.index({ status: 1 });
 userSchema.index({ email: 1, status: 1 });
 export default mongoose.model("User", userSchema);
