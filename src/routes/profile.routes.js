@@ -3,7 +3,8 @@ import { protect } from "../middleware/auth.middleware.js";
 import {
   getMyProfile,
   updateProfile,
-  getProfileByUsername
+  getProfileByUsername,
+  removeProfilePhoto
 } from "../controllers/profile.controller.js";
 import { upload } from "../middleware/upload.middleware.js";
 import { updateProfilePhoto } from "../controllers/profile.controller.js";
@@ -20,4 +21,6 @@ router.patch(
     upload.single("profilePicture"),
     updateProfilePhoto
 );
+router.delete("/photo", protect, removeProfilePhoto);
+
 export default router;

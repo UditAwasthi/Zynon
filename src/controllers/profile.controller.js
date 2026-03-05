@@ -94,3 +94,23 @@ export const updateProfilePhoto = asyncHandler(async (req, res) => {
     });
 
 });
+
+//REMOVE PROFILE PHOTO
+export const removeProfilePhoto = asyncHandler(async (req, res) => {
+
+    const profile = await UserProfile.findOneAndUpdate(
+        { user: req.user.id },
+        { $set: { profilePicture: "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y" } }, 
+        { new: true }
+    );
+
+    if (!profile) {
+        throw new ApiError(404, "Profile not found");
+    }
+
+    return sendSuccess(res, 200, "Profile photo removed successfully", {
+        profilePicture: profile.profilePicture
+    });
+
+
+});
