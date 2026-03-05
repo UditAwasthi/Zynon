@@ -1,329 +1,308 @@
-import bcrypt from "bcryptjs";
-import crypto from "crypto";
-import jwt from "jsonwebtoken";
-import User from "../models/user.model.js";
-import UserProfile from "../models/userProfile.model.js";
-import { generateAccessToken, generateRefreshToken } from "../utils/generateTokens.js";
-import { sendSuccess } from "../utils/apiResponse.js";
-import { ApiError } from "../utils/ApiError.js";
-import { asyncHandler } from "../utils/asyncHandler.js";
-import { sendEmail } from "../services/email.service.js";
-import { emailVerificationTemplate } from "../utils/templates/emailTemplates.js";
-import { passwordResetTemplate } from "../utils/templates/passresetTemplates.js";
+import bcrypt from "bcryptjs"
+import crypto from "crypto"
+import jwt from "jsonwebtoken"
 
-//Deletion Helper Function for stale unverified accounts
+import User from "../models/user.model.js"
+import UserProfile from "../models/userProfile.model.js"
+
+import { generateAccessToken, generateRefreshToken } from "../utils/generateTokens.js"
+import { sendSuccess } from "../utils/apiResponse.js"
+import { ApiError } from "../utils/ApiError.js"
+import { asyncHandler } from "../utils/asyncHandler.js"
+
+import { sendEmail } from "../services/email.service.js"
+import { emailVerificationTemplate } from "../utils/templates/emailTemplates.js"
+import { passwordResetTemplate } from "../utils/templates/passresetTemplates.js"
+
+
+/* -------------------------------- */
+/* COOKIE CONFIG */
+/* -------------------------------- */
+
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  maxAge: 7 * 24 * 60 * 60 * 1000
+}
+
+
+/* -------------------------------- */
+/* HELPER */
+/* -------------------------------- */
+
 const deleteIfExpiredUnverified = async (user) => {
   if (
     !user.emailVerified &&
     user.emailVerificationExpires &&
     user.emailVerificationExpires < Date.now()
   ) {
-    await user.deleteOne();
-    return true; // means deleted
+    await user.deleteOne()
+    return true
   }
-  return false; // means not deleted
-};
-// User Registration function
+  return false
+}
+
+
+/* -------------------------------- */
+/* SIGNUP */
+/* -------------------------------- */
+
 export const signup = asyncHandler(async (req, res) => {
-  const { username, email, password } = req.body;
+
+  const { username, email, password } = req.body
 
   if (!username || !email || !password) {
-    throw new ApiError(400, "All fields are required");
+    throw new ApiError(400, "All fields are required")
   }
 
   const existingUser = await User.findOne({
-    $or: [{ email }, { username }],
-  });
+    $or: [{ email }, { username }]
+  })
 
   if (existingUser) {
-    const deleted = await deleteIfExpiredUnverified(existingUser);
+
+    const deleted = await deleteIfExpiredUnverified(existingUser)
 
     if (!deleted) {
+
       if (!existingUser.emailVerified) {
-        throw new ApiError(409, "Account exists but email not verified");
+        throw new ApiError(409, "Account exists but email not verified")
       }
 
-      throw new ApiError(409, "User already exists");
+      throw new ApiError(409, "User already exists")
     }
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user = await User.create({
+  const passwordHash = await bcrypt.hash(password, 12)
+
+  await User.create({
     username,
     email,
     passwordHash,
-    emailVerificationExpires: Date.now() + 15 * 60 * 1000, // 15 min window
-  });
+    emailVerificationExpires: Date.now() + 15 * 60 * 1000
+  })
 
-  const accessToken = generateAccessToken(user);
-  const refreshToken = generateRefreshToken(user);
+  return sendSuccess(res, 201, "User registered successfully")
 
-  // hash refresh token before saving
-  const refreshTokenHash = crypto
-    .createHash("sha256")
-    .update(refreshToken)
-    .digest("hex");
-
-  user.currentRefreshTokenHash = refreshTokenHash;
-  await user.save();
-  const clientType = req.headers["x-client-type"] || "web";
-
-  if (clientType === "web") {
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: false, // local dev
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    return sendSuccess(res, 201, "User registered successfully", {
-    });
-  }
-
-  return sendSuccess(res, 201, "User registered successfully", {
-  });
-});
+})
 
 
+/* -------------------------------- */
+/* LOGIN */
+/* -------------------------------- */
 
-
-// Login function with account lockout and 2FA handling
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
+const MAX_LOGIN_ATTEMPTS = 5
+const LOCK_TIME = 15 * 60 * 1000
 
 export const login = asyncHandler(async (req, res) => {
-  const { identifier, password } = req.body;
 
-  // Require at least one identifier
-  if (!identifier) {
-    throw new ApiError(400, "Email or Username is required");
+  const { identifier, password } = req.body
+
+  if (!identifier || !password) {
+    throw new ApiError(400, "Identifier and password required")
   }
 
-  if (!password) {
-    throw new ApiError(400, "Password is required");
-  }
-
-  let user;
+  let user
 
   if (identifier.includes("@")) {
     user = await User.findOne({ email: identifier.toLowerCase() })
-      .select("+passwordHash +twoFactorSecret");
+      .select("+passwordHash +twoFactorSecret")
   } else {
     user = await User.findOne({ username: identifier.toLowerCase() })
-      .select("+passwordHash +twoFactorSecret");
+      .select("+passwordHash +twoFactorSecret")
   }
 
   if (!user) {
-    throw new ApiError(401, "Invalid credentials");
+    throw new ApiError(401, "Invalid credentials")
   }
+
   if (!user.emailVerified) {
-    const deleted = await deleteIfExpiredUnverified(user);
+
+    const deleted = await deleteIfExpiredUnverified(user)
 
     if (deleted) {
-      throw new ApiError(
-        400,
-        "Verification expired. Please signup again."
-      );
+      throw new ApiError(400, "Verification expired. Signup again.")
     }
 
-    throw new ApiError(403, "Please verify your email first");
+    throw new ApiError(403, "Please verify email first")
   }
-  // Check Account Status
+
   if (user.status !== "active") {
-    throw new ApiError(403, `Account is ${user.status}`);
+    throw new ApiError(403, `Account is ${user.status}`)
   }
 
-  // Check Lock
   if (user.lockUntil && user.lockUntil > Date.now()) {
-    throw new ApiError(403, "Account temporarily locked. Try later.");
+    throw new ApiError(403, "Account temporarily locked")
   }
 
-  // Check Password
-  const isMatch = await bcrypt.compare(password, user.passwordHash);
+  const isMatch = await bcrypt.compare(password, user.passwordHash)
 
   if (!isMatch) {
-    user.loginAttempts += 1;
+
+    user.loginAttempts += 1
 
     if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
-      user.lockUntil = Date.now() + LOCK_TIME;
+      user.lockUntil = Date.now() + LOCK_TIME
     }
 
-    await user.save();
+    await user.save()
 
-    throw new ApiError(401, "Invalid credentials");
+    throw new ApiError(401, "Invalid credentials")
   }
 
-  // Reset login attempts
-  user.loginAttempts = 0;
-  user.lockUntil = null;
-  user.lastLoginAt = new Date();
-  user.lastLoginIP = req.ip;
+  user.loginAttempts = 0
+  user.lockUntil = null
+  user.lastLoginAt = new Date()
+  user.lastLoginIP = req.ip
 
-  await user.save();
+  await user.save()
 
-  // 2FA Check -- if enabled, require 2FA verification before issuing tokens
   if (user.twoFactorEnabled) {
-    return res.status(200).json({
-      requiresTwoFactor: true,
-      message: "2FA verification required",
-    });
+    return res.json({
+      requiresTwoFactor: true
+    })
   }
 
-  const accessToken = generateAccessToken(user);
-  const refreshToken = generateRefreshToken(user);
+  const accessToken = generateAccessToken(user)
+  const refreshToken = generateRefreshToken(user)
 
-  // store refresh token hash
   const refreshTokenHash = crypto
     .createHash("sha256")
     .update(refreshToken)
-    .digest("hex");
+    .digest("hex")
 
-  user.currentRefreshTokenHash = refreshTokenHash;
+  user.currentRefreshTokenHash = refreshTokenHash
 
-  await user.save();
-  const clientType = req.headers["x-client-type"] || "web";
+  await user.save()
 
-  if (clientType === "web") {
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    return sendSuccess(res, 200, "Login successful", {
-      accessToken,
-    });
-  }
+  res.cookie("refreshToken", refreshToken, cookieOptions)
 
   return sendSuccess(res, 200, "Login successful", {
-    accessToken,
-    refreshToken,
-  });
-});
+    accessToken
+  })
+
+})
 
 
-//refresh token controller with token versioning and platform-specific handling
+/* -------------------------------- */
+/* REFRESH TOKEN */
+/* -------------------------------- */
 
 export const refreshTokenController = asyncHandler(async (req, res) => {
-  const clientType = req.headers["x-client-type"] || "web";
 
-  let refreshToken;
+  const clientType = req.headers["x-client-type"] || "web"
 
-  // Extract refresh token
+  let refreshToken
+
   if (clientType === "web") {
-    refreshToken = req.cookies?.refreshToken;
+    refreshToken = req.cookies?.refreshToken
   } else {
-    refreshToken = req.body?.refreshToken;
+    refreshToken = req.body?.refreshToken
   }
 
   if (!refreshToken) {
-    throw new ApiError(401, "Refresh token missing");
+    throw new ApiError(401, "Refresh token missing")
   }
 
-  let decoded;
+  let decoded
 
-  // Verify token signature
   try {
+
     decoded = jwt.verify(
       refreshToken,
       process.env.REFRESH_TOKEN_SECRET
-    );
-  } catch (error) {
-    throw new ApiError(401, "Invalid or expired refresh token");
+    )
+
+  } catch {
+    throw new ApiError(401, "Invalid or expired refresh token")
   }
+
+  const user = await User
+    .findById(decoded.id)
+    .select("+currentRefreshTokenHash")
+
+  if (!user) {
+    throw new ApiError(401, "User not found")
+  }
+
   const incomingTokenHash = crypto
     .createHash("sha256")
     .update(refreshToken)
-    .digest("hex");
+    .digest("hex")
 
   if (incomingTokenHash !== user.currentRefreshTokenHash) {
-    throw new ApiError(401, "Refresh token reuse detected");
-  }
-  // Find user
-  const user = await User.findById(decoded.id).select("+currentRefreshTokenHash");;
-
-  if (!user) {
-    throw new ApiError(401, "User not found");
+    throw new ApiError(401, "Refresh token reuse detected")
   }
 
-  // Check token version (CRITICAL) -- han hai 🙌
   if (decoded.tokenVersion !== user.refreshTokenVersion) {
-    throw new ApiError(401, "Refresh token revoked");
+    throw new ApiError(401, "Refresh token revoked")
   }
 
-  //Check account status -- if deactivated/suspended/banned to nhi hai 
   if (user.status !== "active") {
-    throw new ApiError(403, `Account is ${user.status}`);
+    throw new ApiError(403, `Account is ${user.status}`)
   }
 
-  //Generate new tokens
-  const newAccessToken = generateAccessToken(user);
-  const newRefreshToken = generateRefreshToken(user);
+  const newAccessToken = generateAccessToken(user)
+  const newRefreshToken = generateRefreshToken(user)
 
-  // rotate refresh token
   const newHash = crypto
     .createHash("sha256")
     .update(newRefreshToken)
-    .digest("hex");
+    .digest("hex")
 
-  user.currentRefreshTokenHash = newHash;
-  await user.save();
-  // Deliver tokens based on platform
-  if (clientType === "web") {
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+  user.currentRefreshTokenHash = newHash
 
-    return sendSuccess(res, 200, "Token refreshed", {
-      accessToken: newAccessToken,
-    });
-  }
+  await user.save()
 
-  // Mobile/Desktop
+  res.cookie("refreshToken", newRefreshToken, cookieOptions)
+
   return sendSuccess(res, 200, "Token refreshed", {
-    accessToken: newAccessToken,
-    refreshToken: newRefreshToken,
-  });
-});
+    accessToken: newAccessToken
+  })
 
-//LOGOUT (Single Device)
+})
+
+
+/* -------------------------------- */
+/* LOGOUT */
+/* -------------------------------- */
+
 export const logout = asyncHandler(async (req, res) => {
-  const clientType = req.headers["x-client-type"] || "web";
 
-  if (clientType === "web") {
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
-  }
+  res.clearCookie("refreshToken", cookieOptions)
 
   await User.findByIdAndUpdate(req.user.id, {
     currentRefreshTokenHash: null
-  });
+  })
 
-  return sendSuccess(res, 200, "Logged out successfully");
-});
-//LOGOUT ALL DEVICES
+  return sendSuccess(res, 200, "Logged out")
+
+})
+
+
+/* -------------------------------- */
+/* LOGOUT ALL */
+/* -------------------------------- */
 
 export const logoutAll = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id);
+
+  const user = await User.findById(req.user.id)
+
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, "User not found")
   }
-  user.refreshTokenVersion += 1;
-  user.currentRefreshTokenHash = null;
-  await user.save();
 
-  res.clearCookie("refreshToken");
+  user.refreshTokenVersion += 1
+  user.currentRefreshTokenHash = null
 
-  return sendSuccess(res, 200, "Logged out from all devices");
-});
+  await user.save()
 
+  res.clearCookie("refreshToken", cookieOptions)
+
+  return sendSuccess(res, 200, "Logged out from all devices")
+
+})
 
 //SEND EMAIL VERIFICATION 
 
@@ -423,10 +402,10 @@ export const verifyEmail = asyncHandler(async (req, res) => {
   const existingProfile = await UserProfile.findOne({ user: user._id });
 
   if (!existingProfile) {
-  await UserProfile.create({
-    user: user._id
-  });
-}
+    await UserProfile.create({
+      user: user._id
+    });
+  }
   return sendSuccess(res, 200, "Email verified successfully");
 });
 
