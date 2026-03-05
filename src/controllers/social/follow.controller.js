@@ -3,8 +3,7 @@ import UserProfile from "../../models/userProfile.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { sendSuccess } from "../../utils/apiResponse.js";
-
-
+import mongoose from "mongoose";
 // FOLLOW USER
 export const followUser = asyncHandler(async (req, res) => {
     const currentUserId = req.user.id;
@@ -95,37 +94,86 @@ export const getFollowers = asyncHandler(async (req, res) => {
 
     const { userId } = req.params;
 
-    const followers = await Follow.find({ following: userId })
-        .populate("follower", "username")
-        .sort({ createdAt: -1 });
+    const followers = await Follow.aggregate([
+        { $match: { following: new mongoose.Types.ObjectId(userId) } },
 
-    return sendSuccess(
-        res,
-        200,
-        "Followers fetched successfully",
-        followers
-    );
+        {
+            $lookup: {
+                from: "users",
+                localField: "follower",
+                foreignField: "_id",
+                as: "user"
+            }
+        },
+        { $unwind: "$user" },
+
+        {
+            $lookup: {
+                from: "userprofiles",
+                localField: "user._id",
+                foreignField: "user",
+                as: "profile"
+            }
+        },
+        { $unwind: { path: "$profile", preserveNullAndEmptyArrays: true } },
+
+        {
+            $project: {
+                follower: {
+                    _id: "$user._id",
+                    username: "$user.username",
+                    profilePicture: "$profile.profilePicture",
+                    name: "$profile.name"
+                }
+            }
+        }
+    ]);
+
+    return sendSuccess(res, 200, "Followers fetched successfully", followers);
 });
-
-
 
 // GET FOLLOWING
 export const getFollowing = asyncHandler(async (req, res) => {
 
     const { userId } = req.params;
 
-    const following = await Follow.find({ follower: userId })
-        .populate("following", "username")
-        .sort({ createdAt: -1 });
+    const following = await Follow.aggregate([
+        { $match: { follower: new mongoose.Types.ObjectId(userId) } },
 
-    return sendSuccess(
-        res,
-        200,
-        "Following fetched successfully",
-        following
-    );
+        {
+            $lookup: {
+                from: "users",
+                localField: "following",
+                foreignField: "_id",
+                as: "user"
+            }
+        },
+        { $unwind: "$user" },
+
+        {
+            $lookup: {
+                from: "userprofiles",
+                localField: "user._id",
+                foreignField: "user",
+                as: "profile"
+            }
+        },
+        { $unwind: { path: "$profile", preserveNullAndEmptyArrays: true } },
+
+        {
+            $project: {
+                following: {
+                    _id: "$user._id",
+                    username: "$user.username",
+                    profilePicture: "$profile.profilePicture",
+                    name: "$profile.name"
+                }
+            }
+        }
+    ]);
+
+    return sendSuccess(res, 200, "Following fetched successfully", following);
 });
-
 
 
 // CHECK IF FOLLOWING
