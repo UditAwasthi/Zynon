@@ -1,4 +1,5 @@
 import express from "express";
+import bcrypt from "bcryptjs";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import { errorHandler } from "../middleware/errorHandler.js";
@@ -36,6 +37,13 @@ app.use("/api/profile", profileRoutes);
 
 app.get("/", (req, res) => {
    res.json({ message: "API running 🚀" });
+});
+app.get("/cpu-test", async (req, res) => {
+  const start = Date.now();
+
+  await bcrypt.hash("benchmark", 12);
+
+  res.json({ durationMs: Date.now() - start });
 });
 
 /* =========================
