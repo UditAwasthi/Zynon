@@ -6,6 +6,7 @@ import { sendSuccess } from "../../utils/apiResponse.js";
 import mongoose from "mongoose";
 // FOLLOW USER
 export const followUser = asyncHandler(async (req, res) => {
+
     const currentUserId = req.user.id;
     const targetUserId = req.params.userId;
 
@@ -13,51 +14,68 @@ export const followUser = asyncHandler(async (req, res) => {
         throw new ApiError(400, "You cannot follow yourself");
     }
 
-    const existingFollow = await Follow.findOne({
-        follower: currentUserId,
-        following: targetUserId
-    });
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    if (existingFollow) {
-        throw new ApiError(400, "Follow request already exists");
-    }
+    try {
 
-    const targetProfile = await UserProfile.findOne({ user: targetUserId });
+        const existingFollow = await Follow.findOne({
+            follower: currentUserId,
+            following: targetUserId
+        }).session(session);
 
-    if (!targetProfile) {
-        throw new ApiError(404, "User profile not found");
-    }
+        if (existingFollow) {
+            throw new ApiError(400, "Follow request already exists");
+        }
 
-    const status = targetProfile.isPrivate ? "pending" : "active";
+        const targetProfile = await UserProfile.findOne({ user: targetUserId }).session(session);
 
-    await Follow.create({
-        follower: currentUserId,
-        following: targetUserId,
-        status
-    });
+        if (!targetProfile) {
+            throw new ApiError(404, "User profile not found");
+        }
 
-    // Only increase counters if follow is active
-    if (status === "active") {
-        await UserProfile.updateOne(
-            { user: targetUserId },
-            { $inc: { followersCount: 1 } }
+        const status = targetProfile.isPrivate ? "pending" : "active";
+
+        await Follow.create([{
+            follower: currentUserId,
+            following: targetUserId,
+            status
+        }], { session });
+
+        if (status === "active") {
+
+            await UserProfile.updateOne(
+                { user: targetUserId },
+                { $inc: { followersCount: 1 } },
+                { session }
+            );
+
+            await UserProfile.updateOne(
+                { user: currentUserId },
+                { $inc: { followingCount: 1 } },
+                { session }
+            );
+
+        }
+
+        await session.commitTransaction();
+        session.endSession();
+
+        return sendSuccess(
+            res,
+            201,
+            status === "pending" ? "Follow request sent" : "User followed"
         );
 
-        await UserProfile.updateOne(
-            { user: currentUserId },
-            { $inc: { followingCount: 1 } }
-        );
+    } catch (error) {
+
+        await session.abortTransaction();
+        session.endSession();
+        throw error;
+
     }
 
-    const message =
-        status === "pending"
-            ? "Follow request sent"
-            : "User followed successfully";
-
-    return sendSuccess(res, 201, message);
 });
-
-
 
 // UNFOLLOW USER
 export const unfollowUser = asyncHandler(async (req, res) => {
@@ -65,29 +83,50 @@ export const unfollowUser = asyncHandler(async (req, res) => {
     const currentUserId = req.user.id;
     const targetUserId = req.params.userId;
 
-    const follow = await Follow.findOneAndDelete({
-        follower: currentUserId,
-        following: targetUserId
-    });
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    if (!follow) {
-        throw new ApiError(404, "You are not following this user");
+    try {
+
+        const follow = await Follow.findOneAndDelete({
+            follower: currentUserId,
+            following: targetUserId
+        }).session(session);
+
+        if (!follow) {
+            throw new ApiError(404, "You are not following this user");
+        }
+
+        if (follow.status === "active") {
+
+            await UserProfile.updateOne(
+                { user: targetUserId },
+                { $inc: { followersCount: -1 } },
+                { session }
+            );
+
+            await UserProfile.updateOne(
+                { user: currentUserId },
+                { $inc: { followingCount: -1 } },
+                { session }
+            );
+
+        }
+
+        await session.commitTransaction();
+        session.endSession();
+
+        return sendSuccess(res, 200, "User unfollowed successfully");
+
+    } catch (error) {
+
+        await session.abortTransaction();
+        session.endSession();
+        throw error;
+
     }
 
-    await UserProfile.updateOne(
-        { user: targetUserId },
-        { $inc: { followersCount: -1 } }
-    );
-
-    await UserProfile.updateOne(
-        { user: currentUserId },
-        { $inc: { followingCount: -1 } }
-    );
-
-    return sendSuccess(res, 200, "User unfollowed successfully");
 });
-
-
 
 // GET FOLLOWERS
 export const getFollowers = asyncHandler(async (req, res) => {
@@ -95,7 +134,12 @@ export const getFollowers = asyncHandler(async (req, res) => {
     const { userId } = req.params;
 
     const followers = await Follow.aggregate([
-        { $match: { following: new mongoose.Types.ObjectId(userId) } },
+        {
+            $match: {
+                following: new mongoose.Types.ObjectId(userId),
+                status: "active"
+            }
+        },
 
         {
             $lookup: {
@@ -119,17 +163,16 @@ export const getFollowers = asyncHandler(async (req, res) => {
 
         {
             $project: {
-                follower: {
-                    _id: "$user._id",
-                    username: "$user.username",
-                    profilePicture: "$profile.profilePicture",
-                    name: "$profile.name"
-                }
+                _id: "$user._id",
+                username: "$user.username",
+                name: "$profile.name",
+                profilePicture: "$profile.profilePicture"
             }
         }
     ]);
 
-    return sendSuccess(res, 200, "Followers fetched successfully", followers);
+    return sendSuccess(res, 200, "Followers fetched", followers);
+
 });
 
 // GET FOLLOWING
@@ -138,7 +181,12 @@ export const getFollowing = asyncHandler(async (req, res) => {
     const { userId } = req.params;
 
     const following = await Follow.aggregate([
-        { $match: { follower: new mongoose.Types.ObjectId(userId) } },
+        {
+            $match: {
+                follower: new mongoose.Types.ObjectId(userId),
+                status: "active"
+            }
+        },
 
         {
             $lookup: {
@@ -162,19 +210,17 @@ export const getFollowing = asyncHandler(async (req, res) => {
 
         {
             $project: {
-                following: {
-                    _id: "$user._id",
-                    username: "$user.username",
-                    profilePicture: "$profile.profilePicture",
-                    name: "$profile.name"
-                }
+                _id: "$user._id",
+                username: "$user.username",
+                name: "$profile.name",
+                profilePicture: "$profile.profilePicture"
             }
         }
     ]);
 
-    return sendSuccess(res, 200, "Following fetched successfully", following);
-});
+    return sendSuccess(res, 200, "Following fetched", following);
 
+});
 
 // CHECK IF FOLLOWING
 export const checkFollowing = asyncHandler(async (req, res) => {
@@ -198,32 +244,50 @@ export const acceptFollowRequest = asyncHandler(async (req, res) => {
     const currentUserId = req.user.id;
     const requestUserId = req.params.userId;
 
-    const follow = await Follow.findOne({
-        follower: requestUserId,
-        following: currentUserId,
-        status: "pending"
-    });
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    if (!follow) {
-        throw new ApiError(404, "Follow request not found");
+    try {
+
+        const follow = await Follow.findOne({
+            follower: requestUserId,
+            following: currentUserId,
+            status: "pending"
+        }).session(session);
+
+        if (!follow) {
+            throw new ApiError(404, "Follow request not found");
+        }
+
+        follow.status = "active";
+        await follow.save({ session });
+
+        await UserProfile.updateOne(
+            { user: currentUserId },
+            { $inc: { followersCount: 1 } },
+            { session }
+        );
+
+        await UserProfile.updateOne(
+            { user: requestUserId },
+            { $inc: { followingCount: 1 } },
+            { session }
+        );
+
+        await session.commitTransaction();
+        session.endSession();
+
+        return sendSuccess(res, 200, "Follow request accepted");
+
+    } catch (error) {
+
+        await session.abortTransaction();
+        session.endSession();
+        throw error;
+
     }
 
-    follow.status = "active";
-    await follow.save();
-
-    await UserProfile.updateOne(
-        { user: currentUserId },
-        { $inc: { followersCount: 1 } }
-    );
-
-    await UserProfile.updateOne(
-        { user: requestUserId },
-        { $inc: { followingCount: 1 } }
-    );
-
-    return sendSuccess(res, 200, "Follow request accepted");
 });
-
 //reject follow request
 export const rejectFollowRequest = asyncHandler(async (req, res) => {
 
@@ -241,6 +305,7 @@ export const rejectFollowRequest = asyncHandler(async (req, res) => {
     }
 
     return sendSuccess(res, 200, "Follow request rejected");
+
 });
 
 //get pending follow requests
@@ -294,4 +359,5 @@ export const cancelFollowRequest = asyncHandler(async (req, res) => {
     }
 
     return sendSuccess(res, 200, "Follow request cancelled");
+
 });

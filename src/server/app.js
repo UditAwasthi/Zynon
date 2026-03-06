@@ -32,6 +32,9 @@ app.use(cookieParser());
 import authRoutes from "../routes/auth.routes.js";
 import profileRoutes from "../routes/profile.routes.js";
 import followRoutes from "../routes/social/follow.routes.js";
+import postRoutes from "../routes/content/post.routes.js";
+
+app.use("/api/content", postRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/follow", followRoutes);
