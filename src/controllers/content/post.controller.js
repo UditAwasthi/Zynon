@@ -6,7 +6,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { sendSuccess } from "../../utils/apiResponse.js";
 import cloudinary from "cloudinary";
 import mongoose from "mongoose";
-
+import UserProfile from "../../models/userProfile.model.js";
 
 
 //Generate Cloudinary Upload Signature
@@ -37,25 +37,40 @@ export const generateUploadSignature = asyncHandler(async (req, res) => {
 
 export const createPost = asyncHandler(async (req, res) => {
 
-    const userId = req.user.id;
-    const { caption, visibility, media } = req.body;
+    const session = await mongoose.startSession();
 
-    if (!media || media.length === 0) {
-        throw new ApiError(400, "At least one media file is required");
-    }
+    await session.withTransaction(async () => {
 
-    if (media.length > 10) {
-        throw new ApiError(400, "Maximum 10 media files allowed");
-    }
+        const userId = req.user.id;
+        const { caption, visibility, media } = req.body;
 
-    const post = await Post.create({
-        author: userId,
-        caption: caption || "",
-        visibility: visibility || "public",
-        media
+        if (!media || media.length === 0) {
+            throw new ApiError(400, "At least one media file is required");
+        }
+
+        if (media.length > 10) {
+            throw new ApiError(400, "Maximum 10 media files allowed");
+        }
+
+        const post = await Post.create([{
+            author: userId,
+            caption: caption || "",
+            visibility: visibility || "public",
+            media
+        }], { session });
+
+        await UserProfile.updateOne(
+            { user: userId },
+            { $inc: { postsCount: 1 } },
+            { session }
+        );
+
+        return sendSuccess(res, 201, "Post created successfully", post[0]);
+
     });
 
-    return sendSuccess(res, 201, "Post created successfully", post);
+    session.endSession();
+
 });
 
 
@@ -180,45 +195,85 @@ export const getSinglePost = asyncHandler(async (req, res) => {
 
 });
 
-
 //delete post
 export const deletePost = asyncHandler(async (req, res) => {
 
     const { postId } = req.params;
     const userId = req.user.id;
 
-    const post = await Post.findById(postId);
+    const session = await mongoose.startSession();
 
-    if (!post) {
-        throw new ApiError(404, "Post not found");
-    }
+    await session.withTransaction(async () => {
 
-    if (!post.author.equals(userId)) {
-        throw new ApiError(403, "You are not allowed to delete this post");
-    }
+        const post = await Post.findById(postId).session(session);
 
-    // delete post immediately
-    await Post.deleteOne({ _id: postId });
+        if (!post) {
+            throw new ApiError(404, "Post not found");
+        }
 
-    // background media deletion
-    post.media.forEach(media => {
+        if (!post.author.equals(userId)) {
+            throw new ApiError(403, "You are not allowed to delete this post");
+        }
 
-        try {
 
-            const urlParts = media.url.split("/");
-            const fileName = urlParts[urlParts.length - 1];
-            const publicId = "zynon/profile_photos/" + fileName.split(".")[0];
+        await Promise.all(
+            post.media.map(async (media) => {
+                try {
 
-            cloudinary.uploader.destroy(publicId).catch(() => { });
+                    const urlParts = media.url.split("/");
+                    const fileName = urlParts[urlParts.length - 1];
+                    const publicId = "zynon/posts/" + fileName.split(".")[0];
 
-        } catch (_) { }
+                    await cloudinary.uploader.destroy(publicId);
+
+                } catch (err) {
+                    console.log("Media delete failed:", err.message);
+                }
+            })
+        );
+
+
+
+        const comments = await Comment.find({ post: postId })
+            .select("_id")
+            .session(session);
+
+        const commentIds = comments.map(c => c._id);
+
+
+
+        await Promise.all([
+
+
+            Post.deleteOne({ _id: postId }).session(session),
+
+            Comment.deleteMany({ post: postId }).session(session),
+
+            Like.deleteMany({
+                targetId: postId,
+                targetType: "Post"
+            }).session(session),
+
+            Like.deleteMany({
+                targetId: { $in: commentIds },
+                targetType: "Comment"
+            }).session(session),
+
+
+            UserProfile.updateOne(
+                { user: userId, postsCount: { $gt: 0 } },
+                { $inc: { postsCount: -1 } }
+            ).session(session)
+
+        ]);
 
     });
+
+    session.endSession();
 
     return sendSuccess(res, 200, "Post deleted successfully");
 
 });
-
 
 //toggle like
 
@@ -662,37 +717,37 @@ export const deleteComment = asyncHandler(async (req, res) => {
 //Edit Comment or Reply
 export const editComment = asyncHandler(async (req, res) => {
 
-  const { commentId } = req.params
-  const { text } = req.body
-  const userId = req.user.id
+    const { commentId } = req.params
+    const { text } = req.body
+    const userId = req.user.id
 
-  if (!text || !text.trim()) {
-    throw new ApiError(400, "Comment text cannot be empty")
-  }
-
-  const comment = await Comment.findById(commentId)
-
-  if (!comment) {
-    throw new ApiError(404, "Comment not found")
-  }
-
-  if (!comment.author.equals(userId)) {
-    throw new ApiError(403, "You are not allowed to edit this comment")
-  }
-
-  await Comment.updateOne(
-    { _id: commentId },
-    {
-      $set: {
-        text: text.trim(),
-        isEdited: true
-      }
+    if (!text || !text.trim()) {
+        throw new ApiError(400, "Comment text cannot be empty")
     }
-  )
 
-  const updatedComment = await Comment.findById(commentId)
-    .populate("author", "username")
+    const comment = await Comment.findById(commentId)
 
-  return sendSuccess(res, 200, "Comment updated successfully", updatedComment)
+    if (!comment) {
+        throw new ApiError(404, "Comment not found")
+    }
+
+    if (!comment.author.equals(userId)) {
+        throw new ApiError(403, "You are not allowed to edit this comment")
+    }
+
+    await Comment.updateOne(
+        { _id: commentId },
+        {
+            $set: {
+                text: text.trim(),
+                isEdited: true
+            }
+        }
+    )
+
+    const updatedComment = await Comment.findById(commentId)
+        .populate("author", "username")
+
+    return sendSuccess(res, 200, "Comment updated successfully", updatedComment)
 
 })
