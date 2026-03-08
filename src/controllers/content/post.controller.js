@@ -7,62 +7,56 @@ import cloudinary from "cloudinary";
 import mongoose from "mongoose";
 
 
+
+//Generate Cloudinary Upload Signature
+
+export const generateUploadSignature = asyncHandler(async (req, res) => {
+
+    const timestamp = Math.round(Date.now() / 1000);
+
+    const signature = cloudinary.utils.api_sign_request(
+        {
+            timestamp,
+            folder: "zynon/posts"
+        },
+        process.env.CLOUDINARY_API_SECRET
+    );
+
+    return res.json({
+        timestamp,
+        signature,
+        apiKey: process.env.CLOUDINARY_API_KEY,
+        cloudName: process.env.CLOUDINARY_CLOUD_NAME
+    });
+});
+
+
+
+  // Create Post (metadata only)
+
 export const createPost = asyncHandler(async (req, res) => {
 
-
     const userId = req.user.id;
+    const { caption, visibility, media } = req.body;
 
-
-    const { caption, visibility } = req.body;
-
-    // Validate files
-    if (!req.files || req.files.length === 0) {
-
-        throw new ApiError(400, "At least one file is required to create a post");
+    if (!media || media.length === 0) {
+        throw new ApiError(400, "At least one media file is required");
     }
 
-    if (req.files.length > 10) {
-
-        throw new ApiError(400, "You can upload a maximum of 10 media files per post");
+    if (media.length > 10) {
+        throw new ApiError(400, "Maximum 10 media files allowed");
     }
 
-
-
-    const uploadPromises = req.files.map(async (file, index) => {
-
-
-        const result = await uploadImage(file);
-
-        if (!result) {
-
-            throw new ApiError(500, "Failed to upload media to Cloudinary");
-        }
-
-        const type = file.mimetype.startsWith("image/") ? "image" : "video";
-
-
-
-        return {
-            url: result.secure_url,
-            type,
-            width: result.width || null,
-            height: result.height || null,
-            duration: result.duration || null
-        };
-    });
-
-    const mediaArray = await Promise.all(uploadPromises);
     const post = await Post.create({
         author: userId,
         caption: caption || "",
-        media: mediaArray,
-        visibility: visibility || "public"
+        visibility: visibility || "public",
+        media
     });
-
-
 
     return sendSuccess(res, 201, "Post created successfully", post);
 });
+
 
 //Get posts for a specific user with pagination
 export const getUserPosts = asyncHandler(async (req, res) => {

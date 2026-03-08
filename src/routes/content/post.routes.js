@@ -1,13 +1,19 @@
 import express from "express";
-import { uploadPostMedia } from "../../middleware/multerPostUpload.js";
-import { createPost, getUserPosts, getSinglePost ,deletePost} from "../../controllers/content/post.controller.js";
+
+import { createPost, getUserPosts, getSinglePost ,deletePost,generateUploadSignature} from "../../controllers/content/post.controller.js";
 import { protect } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
+
+router.get(
+    "/media/signature",
+    protect,
+    generateUploadSignature
+);
+
 router.post(
     "/posts",
     protect,
-    uploadPostMedia.array("media", 10),
     createPost
 );
 
