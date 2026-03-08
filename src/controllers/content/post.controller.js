@@ -1,8 +1,9 @@
 import Post from "../../models/content/post.model.js";
+import Like from "../../models/content/like.model.js";
+import Comment from "../../models/content/comment.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { sendSuccess } from "../../utils/apiResponse.js";
-import { uploadImage } from "../../utils/uploadToCloudinary.js";
 import cloudinary from "cloudinary";
 import mongoose from "mongoose";
 
@@ -32,7 +33,7 @@ export const generateUploadSignature = asyncHandler(async (req, res) => {
 
 
 
-  // Create Post (metadata only)
+// Create Post (metadata only)
 
 export const createPost = asyncHandler(async (req, res) => {
 
@@ -82,110 +83,16 @@ export const getUserPosts = asyncHandler(async (req, res) => {
 });
 
 //get single post details
-// export const getSinglePost = asyncHandler(async (req, res) => {
-//     const { postId } = req.params;
-//     const currentUserId = req.user.id;
-
-
-
-//     const post = await Post.aggregate([
-
-//         { $match: { _id: new mongoose.Types.ObjectId(postId) } },
-//         {
-//             $lookup: {
-//                 from: "users",
-//                 localField: "author",
-//                 foreignField: "_id",
-//                 as: "author"
-//             }
-//         },
-//         { $unwind: "$author" },
-//         {
-//             $project: {
-//                 from: "userprofiles",
-//                 localField: "author._id",
-//                 foreignField: "user",
-//                 as: "profile"
-//             }
-//         },
-//         { $unwind: "$profile" },
-//         {
-//             $lookup: {
-//                 from: "likes",
-//                 let: { postId: "$_id" },
-//                 pipeline: [
-//                     {
-//                         $match: {
-//                             $expr: {
-//                                 $and: [
-//                                     { $eq: ["$post", "$$postId"] },
-//                                     { $eq: ["$user", new mongoose.Types.ObjectId(currentUserId)] }
-//                                 ]
-//                             }
-//                         }
-//                     }
-//                 ],
-//                 as: "liked"
-//             }
-//         },
-//         {
-//             $addFields: {
-//                 isLiked: { $gt: [{ $size: "$liked" }, 0] }
-//             }
-//         },
-
-//         {
-//             $project: {
-//postId: "$_id",
-//                 caption: 1,
-//                 media: 1,
-//                 likesCount: 1,
-//                 commentsCount: 1,
-//                 createdAt: 1,
-
-//                 isLiked: 1,
-
-//                 author: {
-//                     _id: "$author._id",
-//                     username: "$author.username"
-//                 },
-
-//                 profile: {
-//                     profilePicture: "$profile.profilePicture",
-//                     name: "$profile.name"
-//                 }
-//             }
-//         }
-
-//     ]);
-
-//     if (!post.length) {
-//         throw new ApiError(404, "Post not found");
-//     }
-
-//     console.log("Post fetched successfully");
-
-//     return sendSuccess(res, 200, "Post fetched successfully", post[0]);
-
-
-
-// });
-
-//temporary get single post details without like status and author profile
 export const getSinglePost = asyncHandler(async (req, res) => {
-
     const { postId } = req.params;
+    const currentUserId = req.user.id;
+
 
 
     const post = await Post.aggregate([
 
-        {
-            $match: {
-                _id: new mongoose.Types.ObjectId(postId)
-            }
-        },
+        { $match: { _id: new mongoose.Types.ObjectId(postId) } },
 
-        // author info
         {
             $lookup: {
                 from: "users",
@@ -196,7 +103,6 @@ export const getSinglePost = asyncHandler(async (req, res) => {
         },
         { $unwind: "$author" },
 
-        // profile info
         {
             $lookup: {
                 from: "userprofiles",
@@ -213,6 +119,32 @@ export const getSinglePost = asyncHandler(async (req, res) => {
         },
 
         {
+            $lookup: {
+                from: "likes",
+                let: { postId: "$_id" },
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {
+                                $and: [
+                                    { $eq: ["$post", "$$postId"] },
+                                    { $eq: ["$user", new mongoose.Types.ObjectId(currentUserId)] }
+                                ]
+                            }
+                        }
+                    }
+                ],
+                as: "liked"
+            }
+        },
+
+        {
+            $addFields: {
+                isLiked: { $gt: [{ $size: "$liked" }, 0] }
+            }
+        },
+
+        {
             $project: {
                 postId: "$_id",
                 caption: 1,
@@ -220,6 +152,7 @@ export const getSinglePost = asyncHandler(async (req, res) => {
                 likesCount: 1,
                 commentsCount: 1,
                 createdAt: 1,
+                isLiked: 1,
 
                 author: {
                     _id: "$author._id",
@@ -233,15 +166,20 @@ export const getSinglePost = asyncHandler(async (req, res) => {
             }
         }
 
-    ]);
+    ])
 
     if (!post.length) {
         throw new ApiError(404, "Post not found");
     }
 
+    console.log("Post fetched successfully");
+
     return sendSuccess(res, 200, "Post fetched successfully", post[0]);
 
+
+
 });
+
 
 //delete post
 export const deletePost = asyncHandler(async (req, res) => {
@@ -280,3 +218,481 @@ export const deletePost = asyncHandler(async (req, res) => {
     return sendSuccess(res, 200, "Post deleted successfully");
 
 });
+
+
+//toggle like
+
+export const toggleLike = asyncHandler(async (req, res) => {
+
+    const userId = req.user.id
+    const { targetId, targetType } = req.body
+
+    if (!["Post", "Comment"].includes(targetType)) {
+        throw new ApiError(400, "Invalid target type")
+    }
+
+    const existing = await Like.findOne({
+        user: userId,
+        targetId,
+        targetType
+    })
+
+    if (existing) {
+
+        await existing.deleteOne()
+
+        if (targetType === "Post") {
+            await Post.findByIdAndUpdate(targetId, { $inc: { likesCount: -1 } })
+        }
+
+        if (targetType === "Comment") {
+            await Comment.findByIdAndUpdate(targetId, { $inc: { likesCount: -1 } })
+        }
+
+        return sendSuccess(res, 200, "Unliked")
+
+    }
+
+    await Like.create({
+        user: userId,
+        targetId,
+        targetType
+    })
+
+    if (targetType === "Post") {
+        await Post.findByIdAndUpdate(targetId, { $inc: { likesCount: 1 } })
+    }
+
+    if (targetType === "Comment") {
+        await Comment.findByIdAndUpdate(targetId, { $inc: { likesCount: 1 } })
+    }
+
+    return sendSuccess(res, 200, "Liked")
+
+})
+//comment on post
+
+export const createComment = asyncHandler(async (req, res) => {
+
+    const userId = req.user.id
+    const { postId } = req.params
+    const { text, parentComment } = req.body
+
+    if (!text) {
+        throw new ApiError(400, "Comment cannot be empty")
+    }
+
+    const comment = await Comment.create({
+        author: userId,
+        post: postId,
+        text,
+        parentComment: parentComment || null
+    })
+
+    await Post.findByIdAndUpdate(postId, {
+        $inc: { commentsCount: 1 }
+    })
+
+    if (parentComment) {
+        await Comment.findByIdAndUpdate(parentComment, {
+            $inc: { repliesCount: 1 }
+        })
+    }
+
+    return sendSuccess(res, 201, "Comment added", comment)
+
+})
+
+//get comments for a post with pagination
+
+export const getComments = asyncHandler(async (req, res) => {
+
+    const { postId } = req.params
+    const { cursor, limit = 12 } = req.query
+
+    const currentUserId = new mongoose.Types.ObjectId(req.user.id)
+
+    const match = {
+        post: new mongoose.Types.ObjectId(postId),
+        parentComment: null
+    }
+
+    if (cursor) {
+        match._id = { $lt: new mongoose.Types.ObjectId(cursor) }
+    }
+
+    const comments = await Comment.aggregate([
+
+        { $match: match },
+
+        { $sort: { _id: -1 } },
+
+        { $limit: Number(limit) + 1 },
+
+        /* AUTHOR */
+
+        {
+            $lookup: {
+                from: "users",
+                localField: "author",
+                foreignField: "_id",
+                as: "author"
+            }
+        },
+
+        { $unwind: "$author" },
+
+        /* PROFILE */
+
+        {
+            $lookup: {
+                from: "userprofiles",
+                localField: "author._id",
+                foreignField: "user",
+                as: "profile"
+            }
+        },
+
+        {
+            $unwind: {
+                path: "$profile",
+                preserveNullAndEmptyArrays: true
+            }
+        },
+
+        /* CHECK IF USER LIKED COMMENT */
+
+        {
+            $lookup: {
+                from: "likes",
+                let: { commentId: "$_id" },
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {
+                                $and: [
+                                    { $eq: ["$targetId", "$$commentId"] },
+                                    { $eq: ["$targetType", "Comment"] },
+                                    { $eq: ["$user", currentUserId] }
+                                ]
+                            }
+                        }
+                    }
+                ],
+                as: "liked"
+            }
+        },
+
+        {
+            $addFields: {
+                isLiked: { $gt: [{ $size: "$liked" }, 0] }
+            }
+        },
+
+        /* PREVIEW FIRST 2 REPLIES */
+
+        {
+            $lookup: {
+                from: "comments",
+                let: { parentId: "$_id" },
+                pipeline: [
+
+                    {
+                        $match: {
+                            $expr: {
+                                $eq: ["$parentComment", "$$parentId"]
+                            }
+                        }
+                    },
+
+                    { $sort: { createdAt: 1 } },
+
+                    { $limit: 2 },
+
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "author",
+                            foreignField: "_id",
+                            as: "author"
+                        }
+                    },
+
+                    { $unwind: "$author" },
+
+                    {
+                        $project: {
+                            text: 1,
+                            createdAt: 1,
+                            author: {
+                                _id: "$author._id",
+                                username: "$author.username"
+                            }
+                        }
+                    }
+
+                ],
+                as: "previewReplies"
+            }
+        },
+
+        {
+            $project: {
+
+                commentId: "$_id",
+                text: 1,
+                createdAt: 1,
+                likesCount: 1,
+                repliesCount: 1,
+                isLiked: 1,
+                previewReplies: 1,
+
+                author: {
+                    _id: "$author._id",
+                    username: "$author.username"
+                },
+
+                profile: {
+                    profilePicture: "$profile.profilePicture",
+                    name: "$profile.name"
+                }
+
+            }
+        }
+
+    ])
+
+    const nextCursor =
+        comments.length > limit
+            ? comments[comments.length - 1].commentId
+            : null
+
+    return sendSuccess(res, 200, "Comments fetched successfully", {
+        comments: comments.slice(0, limit),
+        nextCursor
+    })
+
+})
+
+//get replies for a comment with pagination
+export const getReplies = asyncHandler(async (req, res) => {
+
+    const { commentId } = req.params
+    const { cursor, limit = 10 } = req.query
+
+    const currentUserId = new mongoose.Types.ObjectId(req.user.id)
+
+    const match = {
+        parentComment: new mongoose.Types.ObjectId(commentId)
+    }
+
+    if (cursor) {
+        match._id = { $gt: new mongoose.Types.ObjectId(cursor) }
+    }
+
+    const replies = await Comment.aggregate([
+
+        { $match: match },
+
+        { $sort: { createdAt: 1 } },
+
+        { $limit: Number(limit) + 1 },
+
+        /* AUTHOR */
+
+        {
+            $lookup: {
+                from: "users",
+                localField: "author",
+                foreignField: "_id",
+                as: "author"
+            }
+        },
+
+        { $unwind: "$author" },
+
+        /* PROFILE */
+
+        {
+            $lookup: {
+                from: "userprofiles",
+                localField: "author._id",
+                foreignField: "user",
+                as: "profile"
+            }
+        },
+
+        {
+            $unwind: {
+                path: "$profile",
+                preserveNullAndEmptyArrays: true
+            }
+        },
+
+        /* CHECK IF USER LIKED */
+
+        {
+            $lookup: {
+                from: "likes",
+                let: { commentId: "$_id" },
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {
+                                $and: [
+                                    { $eq: ["$targetId", "$$commentId"] },
+                                    { $eq: ["$targetType", "Comment"] },
+                                    { $eq: ["$user", currentUserId] }
+                                ]
+                            }
+                        }
+                    }
+                ],
+                as: "liked"
+            }
+        },
+
+        {
+            $addFields: {
+                isLiked: { $gt: [{ $size: "$liked" }, 0] }
+            }
+        },
+
+        {
+            $project: {
+
+                replyId: "$_id",
+                text: 1,
+                createdAt: 1,
+                likesCount: 1,
+                isLiked: 1,
+
+                author: {
+                    _id: "$author._id",
+                    username: "$author.username"
+                },
+
+                profile: {
+                    profilePicture: "$profile.profilePicture",
+                    name: "$profile.name"
+                }
+
+            }
+        }
+
+    ])
+
+    const nextCursor =
+        replies.length > limit
+            ? replies[replies.length - 1].replyId
+            : null
+
+    return sendSuccess(res, 200, "Replies fetched", {
+        replies: replies.slice(0, limit),
+        nextCursor
+    })
+
+})
+
+//delete comment or reply
+export const deleteComment = asyncHandler(async (req, res) => {
+    const { commentId } = req.params
+    const userId = req.user.id
+
+
+    const session = await mongoose.startSession()
+    session.startTransaction()
+
+    let deletedReplies = 0;
+
+    await session.withTransaction(async () => {
+        const comment = await Comment.findById(commentId).session(session)
+
+        if (!comment) {
+            throw new ApiError(404, "Comment not found")
+        }
+
+        if (!comment.author.equals(userId)) {
+            throw new ApiError(403, "You are not allowed to delete this comment")
+        }
+        // coutnign replies for quick delete
+
+        deletedReplies = await Comment.countDocuments({ parentComment: commentId }).session(session)
+
+        //delete comment and reply in one go
+
+        await Comment.bulkWrite([
+            {
+                deleteMany: {
+                    filter: { parentComment: commentId }
+                }
+            },
+            {
+                deleteOne: {
+                    filter: { _id: commentId }
+                }
+            }
+        ], { session })
+
+        //update post's comments count removing deleted comment and its replies 
+
+        await Post.updateOne(
+            { _id: comment.post },
+            { $inc: { commentsCount: -(1 + deletedReplies) } },
+            { session }
+        )
+
+        // if its a reply then update parent comment's replies count
+        if (comment.parentComment) {
+            await Comment.updateOne(
+                { _id: comment.parentComment },
+                { $inc: { repliesCount: -1 } },
+                { session }
+            )
+        }
+    })
+
+    session.endSession()
+
+    return sendSuccess(res, 200, "Comment and its replies deleted successfully")
+
+});
+
+
+//Edit Comment or Reply
+export const editComment = asyncHandler(async (req, res) => {
+
+  const { commentId } = req.params
+  const { text } = req.body
+  const userId = req.user.id
+
+  if (!text || !text.trim()) {
+    throw new ApiError(400, "Comment text cannot be empty")
+  }
+
+  const comment = await Comment.findById(commentId)
+
+  if (!comment) {
+    throw new ApiError(404, "Comment not found")
+  }
+
+  if (!comment.author.equals(userId)) {
+    throw new ApiError(403, "You are not allowed to edit this comment")
+  }
+
+  await Comment.updateOne(
+    { _id: commentId },
+    {
+      $set: {
+        text: text.trim(),
+        isEdited: true
+      }
+    }
+  )
+
+  const updatedComment = await Comment.findById(commentId)
+    .populate("author", "username")
+
+  return sendSuccess(res, 200, "Comment updated successfully", updatedComment)
+
+})
