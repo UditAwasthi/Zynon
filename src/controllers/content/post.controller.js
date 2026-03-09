@@ -656,7 +656,7 @@ export const deleteComment = asyncHandler(async (req, res) => {
 
 
     const session = await mongoose.startSession()
-    session.startTransaction()
+    
 
     let deletedReplies = 0;
 
