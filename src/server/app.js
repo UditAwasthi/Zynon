@@ -10,16 +10,23 @@ const app = express();
    Global Middlewares
 ========================= */
 
-// Allow ANY origin (dev mode) while supporting cookies
-app.use(cors({
-   origin: function (origin, callback) {
-      // Allow requests without origin (Postman, curl)
-      if (!origin) return callback(null, true);
+const allowedOrigins = [
+  "https://zynon-next-js-website.vercel.app",
+  "http://localhost:3000"
+];
 
-      // Reflect request origin (allow all)
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow server-to-server tools like Postman
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
-   },
-   credentials: true,
+    }
+
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true
 }));
 
 app.use(express.json());
