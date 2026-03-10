@@ -64,7 +64,11 @@ export const initSocket = (server) => {
                 { _id: messageId },
                 { $addToSet: { deliveredTo: socket.user.id } }
             );
-
+            const message = await Message.findById(messageId).lean();
+            io.to(message.threadId.toString()).emit("message_delivered", {
+                messageId,
+                userId: socket.user.id
+            });
         });
         /*
         Leave chat thread
