@@ -40,13 +40,14 @@ import authRoutes from "../routes/auth.routes.js";
 import profileRoutes from "../routes/profile.routes.js";
 import followRoutes from "../routes/social/follow.routes.js";
 import postRoutes from "../routes/content/post.routes.js";
-
+import chatRoutes from "../routes/chat/chat.routes.js"
+app.use("/api/chat", chatRoutes);
 app.use("/api/content", postRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/follow", followRoutes);
 app.get("/", (req, res) => {
-   res.json({ message: "API running 🚀" });
+  res.json({ message: "API running 🚀" });
 });
 app.get("/cpu-test", async (req, res) => {
   const start = Date.now();
