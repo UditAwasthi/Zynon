@@ -1,7 +1,18 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import redis from "../redis/redisClient.js";
-import Message from "../models/chat/message.model.js"
+import Message from "../models/chat/message.model.js";
+
+// Safe redis helper — never throws, just logs
+const safeRedis = async (fn) => {
+    try {
+        return await fn();
+    } catch (err) {
+        console.error("Redis error (non-fatal):", err.message);
+        return null;
+    }
+};
+
 let io;
 
 export const initSocket = (server) => {
@@ -18,11 +29,8 @@ export const initSocket = (server) => {
         }
     });
 
-    /*
-    Socket Authentication
-    */
+    // Socket Authentication
     io.use((socket, next) => {
-
         const token = socket.handshake.auth?.token;
 
         if (!token) {
@@ -30,14 +38,9 @@ export const initSocket = (server) => {
         }
 
         try {
-            const decoded = jwt.verify(
-                token,
-                process.env.ACCESS_TOKEN_SECRET
-            );
-
+            const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
             socket.user = decoded;
             next();
-
         } catch (err) {
             return next(new Error("Invalid token"));
         }
@@ -46,87 +49,71 @@ export const initSocket = (server) => {
     io.on("connection", async (socket) => {
 
         const userId = socket.user.id;
-        /* mark user online */
-        await redis.set(`user:online:${userId}`, "1", "EX", 30);
-        await redis.set(`user:socket:${userId}`, socket.id);
-        /*
-        Join chat thread
-        */
+        console.log("User connected:", userId);
+
+        // Mark user online
+        await safeRedis(() => redis.set(`user:online:${userId}`, "1", "EX", 30));
+        await safeRedis(() => redis.set(`user:socket:${userId}`, socket.id));
+
+        // Join chat thread
         socket.on("join_thread", (threadId) => {
-
             socket.join(threadId);
-
+            console.log(`User ${userId} joined thread ${threadId}`);
         });
-        //meesage delievered 
+
+        // Message delivered
         socket.on("message_delivered", async ({ messageId }) => {
-
-            await Message.updateOne(
-                { _id: messageId },
-                { $addToSet: { deliveredTo: socket.user.id } }
-            );
-            const message = await Message.findById(messageId).lean();
-            io.to(message.threadId.toString()).emit("message_delivered", {
-                messageId,
-                userId: socket.user.id
-            });
+            try {
+                await Message.updateOne(
+                    { _id: messageId },
+                    { $addToSet: { deliveredTo: socket.user.id } }
+                );
+                const message = await Message.findById(messageId).lean();
+                if (message) {
+                    io.to(message.threadId.toString()).emit("message_delivered", {
+                        messageId,
+                        userId: socket.user.id
+                    });
+                }
+            } catch (err) {
+                console.error("message_delivered error:", err.message);
+            }
         });
-        /*
-        Leave chat thread
-        */
+
+        // Leave chat thread
         socket.on("leave_thread", (threadId) => {
-
             socket.leave(threadId);
-
-
-
+            console.log(`User ${userId} left thread ${threadId}`);
         });
-        //typing start
+
+        // Typing start
         socket.on("typing_start", async ({ threadId }) => {
-
-            const userId = socket.user.id;
-
-            await redis.set(
-                `typing:${threadId}:${userId}`,
-                "1",
-                "EX",
-                5
+            await safeRedis(() =>
+                redis.set(`typing:${threadId}:${userId}`, "1", "EX", 5)
             );
-
             socket.to(threadId).emit("user_typing", { userId });
-
         });
-        //typing stop
+
+        // Typing stop
         socket.on("typing_stop", async ({ threadId }) => {
-
-            const userId = socket.user.id;
-
-            await redis.del(`typing:${threadId}:${userId}`);
-
+            await safeRedis(() =>
+                redis.del(`typing:${threadId}:${userId}`)
+            );
             socket.to(threadId).emit("user_stop_typing", { userId });
-
         });
 
-        /*
-        Disconnect
-        */
+        // Disconnect
         socket.on("disconnect", async () => {
-
-
-
-            await redis.del(`user:online:${userId}`);
-            await redis.del(`user:socket:${userId}`);
-
+            console.log("User disconnected:", userId);
+            await safeRedis(() => redis.del(`user:online:${userId}`));
+            await safeRedis(() => redis.del(`user:socket:${userId}`));
         });
-
     });
-
 };
 
 export const getIO = () => {
-
     if (!io) {
         throw new Error("Socket.io not initialized");
     }
-
     return io;
 };

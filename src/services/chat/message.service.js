@@ -5,6 +5,16 @@ import { ApiError } from "../../utils/ApiError.js";
 import { getIO } from "../../socket/socket.js";
 import redis from "../../redis/redisClient.js";
 
+// Safe redis helper — never throws, just logs
+const safeRedis = async (fn) => {
+    try {
+        return await fn();
+    } catch (err) {
+        console.error("Redis error (non-fatal):", err.message);
+        return null;
+    }
+};
+
 /* =====================================
    GET MESSAGES
 ===================================== */
@@ -46,10 +56,8 @@ export const getMessages = async (
         .populate("replyTo", "content senderId")
         .lean();
 
-    /*
-    Reset unread counter when chat opened
-    */
-    await redis.del(`unread:${threadId}:${userId}`);
+    // Reset unread counter when chat opened
+    await safeRedis(() => redis.del(`unread:${threadId}:${userId}`));
 
     return messages.reverse();
 };
@@ -87,9 +95,7 @@ export const sendMessage = async (userId, { threadId, content }) => {
         isDeleted: false
     });
 
-    /*
-    Update thread metadata
-    */
+    // Update thread metadata
     await Thread.updateOne(
         { _id: objectThreadId },
         {
@@ -106,31 +112,28 @@ export const sendMessage = async (userId, { threadId, content }) => {
         }
     );
 
-    /*
-    Populate sender for socket payload
-    */
+    // Populate sender for socket payload
     const populatedMessage = await Message.findById(message._id)
         .populate("senderId", "username")
         .lean();
 
     const io = getIO();
 
-    /*
-    Realtime message delivery
-    */
+    // Realtime message delivery
     io.to(objectThreadId.toString()).emit("new_message", populatedMessage);
 
-    /*
-    Update unread counters for other participants
-    */
+    // Update unread counters for other participants
     const receivers = thread.participants
         .map(p => p.userId.toString())
         .filter(id => id !== userId.toString());
 
     for (const receiverId of receivers) {
-        await redis.incr(`unread:${threadId}:${receiverId}`);
+        await safeRedis(() => redis.incr(`unread:${threadId}:${receiverId}`));
 
-        const receiverSocketId = await redis.get(`user:socket:${receiverId}`);
+        const receiverSocketId = await safeRedis(() =>
+            redis.get(`user:socket:${receiverId}`)
+        );
+
         if (receiverSocketId) {
             io.to(receiverSocketId).emit("unread_update", {
                 threadId,
@@ -176,18 +179,19 @@ export const markMessagesSeen = async (userId, { threadId, messageIds }) => {
             $addToSet: { seenBy: userId }
         }
     );
+
     const io = getIO();
     io.to(threadId.toString()).emit("messages_seen", {
         messageIds,
         seenBy: userId
     });
+
     return { success: true };
 };
 
-
-/*==========================================
-react to messages  
-============================================== */
+/* =====================================
+   REACT TO MESSAGES
+===================================== */
 
 export const addReaction = async (userId, { messageId, emoji }) => {
 
@@ -196,13 +200,15 @@ export const addReaction = async (userId, { messageId, emoji }) => {
     if (!message) {
         throw new ApiError(404, "Message not found");
     }
+
     const thread = await Thread.findOne({
         _id: message.threadId,
         "participants.userId": userId
     });
-    if (!thread) throw new ApiError(403, "You are not part of this conversation");
-    const threadId = message.threadId;
 
+    if (!thread) throw new ApiError(403, "You are not part of this conversation");
+
+    const threadId = message.threadId;
 
     await Message.updateOne(
         { _id: messageId },
@@ -210,19 +216,18 @@ export const addReaction = async (userId, { messageId, emoji }) => {
             {
                 $set: {
                     reactions: {
-                        $filter: { input: "$reactions", cond: { $ne: ["$$this.userId", userId] } }
+                        $filter: {
+                            input: "$reactions",
+                            cond: { $ne: ["$$this.userId", userId] }
+                        }
                     }
                 }
             },
-            { $push: { reactions: { userId, emoji } } }  // use $concatArrays in aggregation pipeline update
+            { $push: { reactions: { userId, emoji } } }
         ]
     );
 
-    /*
-    Emit realtime update
-    */
     const io = getIO();
-
     io.to(threadId.toString()).emit("reaction_update", {
         messageId,
         userId,
