@@ -9,10 +9,12 @@ const app = express();
 /* =========================
    Global Middlewares
 ========================= */
-
+//working code 
 const allowedOrigins = [
   "https://zynon-next-js-website.vercel.app",
-  "http://localhost:3000"
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+
 ];
 
 app.use(cors({

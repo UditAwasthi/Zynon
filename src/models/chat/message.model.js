@@ -52,7 +52,17 @@ const messageSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "User"
   }],
-
+  deliveredTo: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  }],
+  reactions: [{
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    },
+    emoji: String
+  }],
   isEdited: {
     type: Boolean,
     default: false
