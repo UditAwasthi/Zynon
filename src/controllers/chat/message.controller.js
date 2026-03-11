@@ -1,6 +1,7 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { sendSuccess } from "../../utils/apiResponse.js";
-import { getMessages, sendMessage ,markMessagesSeen,addReaction} from "../../services/chat/message.service.js";
+import { getMessages, sendMessage, markMessagesSeen, addReaction } from "../../services/chat/message.service.js";
+import cloudinary from "cloudinary";
 
 //getinbox
 
@@ -27,8 +28,8 @@ export const getMessagesController = asyncHandler(async (req, res) => {
 
 export const sendMessageController = asyncHandler(async (req, res) => {
 
-    const { threadId, content } = req.body;
-    const message = await sendMessage(req.user.id, { threadId, content });
+    const { threadId, content, mediaUrl, mediaType, mediaMeta } = req.body;
+    const message = await sendMessage(req.user.id, { threadId, content, mediaUrl, mediaType, mediaMeta });
 
     return sendSuccess(
         res,
@@ -63,4 +64,25 @@ export const addReactionController = asyncHandler(async (req, res) => {
     result
   );
 
+});
+
+// Generate Cloudinary upload signature for chat media
+export const generateChatUploadSignature = asyncHandler(async (req, res) => {
+    const timestamp = Math.round(Date.now() / 1000);
+
+    const signature = cloudinary.utils.api_sign_request(
+        {
+            timestamp,
+            folder: "zynon/messages"
+        },
+        process.env.CLOUDINARY_API_SECRET
+    );
+
+    return sendSuccess(res, 200, "Signature generated", {
+        timestamp,
+        signature,
+        apiKey: process.env.CLOUDINARY_API_KEY,
+        cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+        folder: "zynon/messages"
+    });
 });

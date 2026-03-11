@@ -19,11 +19,7 @@ const safeRedis = async (fn) => {
    GET MESSAGES
 ===================================== */
 
-export const getMessages = async (
-    userId,
-    threadId,
-    { limit = 30, cursor } = {}
-) => {
+export const getMessages = async (userId,threadId,{ limit = 30, cursor } = {}) => {
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
         throw new ApiError(400, "invalid threadId");
@@ -66,14 +62,14 @@ export const getMessages = async (
    SEND MESSAGE
 ===================================== */
 
-export const sendMessage = async (userId, { threadId, content }) => {
+export const sendMessage = async (userId, { threadId, content, mediaUrl, mediaType, mediaMeta }) => {
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
         throw new ApiError(400, "Invalid threadId");
     }
 
-    if (!content || !content.trim()) {
-        throw new ApiError(400, "Message content cannot be empty");
+    if (!content?.trim() && !mediaUrl) {
+        throw new ApiError(400, "Message must contain text or media");
     }
 
     const objectThreadId = new mongoose.Types.ObjectId(threadId);
@@ -87,13 +83,21 @@ export const sendMessage = async (userId, { threadId, content }) => {
         throw new ApiError(403, "You are not part of this conversation");
     }
 
-    const message = await Message.create({
+    const messageData = {
         threadId: objectThreadId,
         senderId: userId,
-        content,
-        type: "text",
+        type: mediaUrl ? "media" : "text",
         isDeleted: false
-    });
+    };
+
+    if (content?.trim()) messageData.content = content.trim();
+    if (mediaUrl) {
+        messageData.mediaUrl = mediaUrl;
+        messageData.mediaType = mediaType;
+        if (mediaMeta) messageData.mediaMeta = mediaMeta;
+    }
+
+    const message = await Message.create(messageData);
 
     // Update thread metadata
     await Thread.updateOne(
@@ -104,7 +108,8 @@ export const sendMessage = async (userId, { threadId, content }) => {
                 lastMessage: {
                     messageId: message._id,
                     senderId: userId,
-                    content,
+                    content: content?.trim() || `[${mediaType || "media"}]`,
+                    mediaType: mediaUrl ? mediaType : undefined,
                     createdAt: message.createdAt
                 }
             },
@@ -214,26 +219,14 @@ export const addReaction = async (userId, { messageId, emoji }) => {
 
     const threadId = message.threadId;
 
+    // Remove existing reaction from this user, then add the new one
     await Message.updateOne(
         { _id: messageId },
-        [
-            {
-                $set: {
-                    reactions: {
-                        $concatArrays: [
-                            {
-                                $filter: {
-                                    input: { $ifNull: ["$reactions", []] },
-                                    cond: { $ne: ["$$this.userId", userId] }
-                                }
-                            },
-                            [{ userId, emoji }]
-                        ]
-                    }
-                }
-            }
-        ],
-        { updatePipeline: true }
+        { $pull: { reactions: { userId } } }
+    );
+    await Message.updateOne(
+        { _id: messageId },
+        { $push: { reactions: { userId, emoji } } }
     );
 
     const io = getIO();
