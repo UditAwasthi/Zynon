@@ -195,6 +195,10 @@ export const markMessagesSeen = async (userId, { threadId, messageIds }) => {
 
 export const addReaction = async (userId, { messageId, emoji }) => {
 
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+        throw new ApiError(400, "Invalid messageId");
+    }
+
     const message = await Message.findById(messageId);
 
     if (!message) {
@@ -216,15 +220,20 @@ export const addReaction = async (userId, { messageId, emoji }) => {
             {
                 $set: {
                     reactions: {
-                        $filter: {
-                            input: "$reactions",
-                            cond: { $ne: ["$$this.userId", userId] }
-                        }
+                        $concatArrays: [
+                            {
+                                $filter: {
+                                    input: { $ifNull: ["$reactions", []] },
+                                    cond: { $ne: ["$$this.userId", userId] }
+                                }
+                            },
+                            [{ userId, emoji }]
+                        ]
                     }
                 }
-            },
-            { $push: { reactions: { userId, emoji } } }
-        ]
+            }
+        ],
+        { updatePipeline: true }
     );
 
     const io = getIO();
