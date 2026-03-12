@@ -79,9 +79,10 @@ export const signup = asyncHandler(async (req, res) => {
     passwordHash,
     emailVerificationExpires: Date.now() + 15 * 60 * 1000
   })
-
- searchQueue.add("index-username", { username: user.username })
-
+  searchQueue
+    .add("index-username", { username: user.username })
+    .then(job => console.log(`Search index job queued: ${job.id} for "${user.username}"`))
+    .catch(err => console.error("Failed to queue search index job:", err.message))
   return sendSuccess(res, 201, "User registered successfully")
 })
 
