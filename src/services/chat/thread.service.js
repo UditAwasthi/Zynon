@@ -62,61 +62,24 @@ export const createOrGetDMThread = async (currentUserId, receiverId) => {
 
     return thread;
 };
+const inbox = threads.map(thread => {
 
-export const getInbox = async (userId, { limit = 20, cursor } = {}) => {
+    let otherUser = null;
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-        throw new ApiError(400, "Invalid userId");
+    if (thread.type === "dm") {
+        const otherParticipant = thread.participants
+            .filter(p => p.userId)
+            .find(p => p.userId._id.toString() !== userId.toString());
+
+        otherUser = otherParticipant?.userId || null;
     }
 
-    const objectUserId = new mongoose.Types.ObjectId(userId);
-
-    const query = {
-        "participants.userId": objectUserId,
-        deletedFor: { $ne: objectUserId }
+    return {
+        threadId: thread._id,
+        type: thread.type,
+        user: otherUser,
+        lastMessage: thread.lastMessage || null,
+        lastActivity: thread.lastActivity,
+        messageCount: thread.messageCount
     };
-
-    /*
-    Cursor pagination (optional)
-    */
-    if (cursor) {
-        query.lastActivity = { $lt: new Date(cursor) };
-    }
-
-    const threads = await Thread.find(query)
-        .sort({ lastActivity: -1 })
-        .limit(limit)
-        .populate({
-            path: "participants.userId",
-            select: "username"
-        })
-        .lean();
-
-    /*
-    Transform response:
-    return only the other participant in DM threads
-    */
-    const inbox = threads.map(thread => {
-
-        let otherUser = null;
-
-        if (thread.type === "dm") {
-            const otherParticipant = thread.participants.find(
-                p => p.userId._id.toString() !== userId.toString()
-            );
-
-            otherUser = otherParticipant?.userId || null;
-        }
-
-        return {
-            threadId: thread._id,
-            type: thread.type,
-            user: otherUser,
-            lastMessage: thread.lastMessage || null,
-            lastActivity: thread.lastActivity,
-            messageCount: thread.messageCount
-        };
-    });
-
-    return inbox;
-};
+});
