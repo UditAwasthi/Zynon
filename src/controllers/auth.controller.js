@@ -80,10 +80,7 @@ export const signup = asyncHandler(async (req, res) => {
     emailVerificationExpires: Date.now() + 15 * 60 * 1000
   })
 
-  /* BACKGROUND SEARCH INDEX JOB */
-  await searchQueue.add("index-username", {
-    username: user.username
-  })
+ searchQueue.add("index-username", { username: user.username })
 
   return sendSuccess(res, 201, "User registered successfully")
 })

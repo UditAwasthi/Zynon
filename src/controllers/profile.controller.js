@@ -9,7 +9,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 //GET PROFILE
 export const getMyProfile = asyncHandler(async (req, res) => {
     const userId = req.user.id;
-    console.log("User ID from token:", userId);
+   
     const profile = await UserProfile.findOne({ user: userId }).populate("user", "username email");
 
     if (!profile) {

@@ -1,3 +1,5 @@
+import "dotenv/config"  // ← must be first
+
 import { Worker } from "bullmq";
 import { connection } from "../queues/connection.js";
 import { indexUsernameSearch } from "../utils/indexUsernameSearch.js";

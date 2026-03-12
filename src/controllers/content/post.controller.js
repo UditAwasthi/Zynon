@@ -187,7 +187,7 @@ export const getSinglePost = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Post not found");
     }
 
-    console.log("Post fetched successfully");
+   
 
     return sendSuccess(res, 200, "Post fetched successfully", post[0]);
 

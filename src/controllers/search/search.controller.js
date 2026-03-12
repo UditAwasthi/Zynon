@@ -100,7 +100,7 @@ export const search = asyncHandler(async (req, res) => {
 //search suggestions
 export const searchUserSuggestions = asyncHandler(async (req, res) => {
     const keys = await redis.keys("search:user:*")
-    console.log(keys)
+  
     const { q } = req.query
 
     if (!q || q.length < 1) {

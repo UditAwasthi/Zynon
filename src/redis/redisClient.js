@@ -1,7 +1,8 @@
 import Redis from "ioredis";
+const useTLS = process.env.REDIS_URL?.startsWith("rediss://");
 
 const redis = new Redis(process.env.REDIS_URL, {
-    tls: {}, // ← required for Upstash (rediss://)
+    tls: useTLS ? {} : undefined,
     maxRetriesPerRequest: null,
     enableOfflineQueue: false,
     retryStrategy: (times) => {
