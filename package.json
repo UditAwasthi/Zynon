@@ -16,15 +16,17 @@
   "main": "src/server/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node ./src/server/index.js",
-    "dev": "nodemon ./src/server/index.js"
+    "start": "concurrently \"node src/server/index.js\" \"node src/workers/search.worker.js\"",
+    "dev": "concurrently \"nodemon ./src/server/index.js\" \"nodemon ./src/workers/search.worker.js\"",
+    "worker:search": "node src/workers/search.worker.js"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
-    "bullmq": "^5.70.4",
+    "bullmq": "^5.71.0",
     "cloudinary": "^2.9.0",
+    "concurrently": "^9.2.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

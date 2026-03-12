@@ -43,11 +43,13 @@ import profileRoutes from "../routes/profile.routes.js";
 import followRoutes from "../routes/social/follow.routes.js";
 import postRoutes from "../routes/content/post.routes.js";
 import chatRoutes from "../routes/chat/chat.routes.js"
+import searchRoutes from "../routes/search/search.routes.js"
 app.use("/api/chat", chatRoutes);
 app.use("/api/content", postRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
-app.use("/api/follow", followRoutes);
+app.use("/api/follow", followRoutes);   
+app.use("/api/search", searchRoutes);   
 app.get("/", (req, res) => {
   res.json({ message: "API running 🚀" });
 });

@@ -13,8 +13,8 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { sendEmail } from "../services/email.service.js"
 import { emailVerificationTemplate } from "../utils/templates/emailTemplates.js"
 import { passwordResetTemplate } from "../utils/templates/passresetTemplates.js"
-
-
+import { indexUsernameSearch } from "../utils/indexUsernameSearch.js";
+import { searchQueue } from "../queues/search.queue.js";
 /* -------------------------------- */
 /* COOKIE CONFIG */
 /* -------------------------------- */
@@ -45,7 +45,6 @@ const deleteIfExpiredUnverified = async (user) => {
 /* -------------------------------- */
 /* SIGNUP */
 /* -------------------------------- */
-
 export const signup = asyncHandler(async (req, res) => {
 
   const { username, email, password } = req.body
@@ -74,17 +73,20 @@ export const signup = asyncHandler(async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 12)
 
-  await User.create({
+  const user = await User.create({
     username,
     email,
     passwordHash,
     emailVerificationExpires: Date.now() + 15 * 60 * 1000
   })
 
+  /* BACKGROUND SEARCH INDEX JOB */
+  await searchQueue.add("index-username", {
+    username: user.username
+  })
+
   return sendSuccess(res, 201, "User registered successfully")
-
 })
-
 
 /* -------------------------------- */
 /* LOGIN */
