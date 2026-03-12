@@ -92,9 +92,7 @@ export const search = asyncHandler(async (req, res) => {
     //redis store
 
 
-    await redis.set(cacheKey, JSON.stringify(result), {
-        EX: 60
-    })
+    await redis.set(cacheKey, JSON.stringify(result), 'EX', 60)
 
     return sendSuccess(res, 200, "Search results fetched", result)
 })
