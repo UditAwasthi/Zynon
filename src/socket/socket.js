@@ -49,8 +49,7 @@ export const initSocket = (server) => {
     io.on("connection", async (socket) => {
 
         const userId = socket.user.id;
-        console.log("User connected:", userId);
-
+  
         // Mark user online
         await safeRedis(() => redis.set(`user:online:${userId}`, "1", "EX", 30));
         await safeRedis(() => redis.set(`user:socket:${userId}`, socket.id));

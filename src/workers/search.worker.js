@@ -1,5 +1,5 @@
 // search.worker.js
-import "dotenv/config"
+import "../config/env.js";  
 import { Worker } from "bullmq";
 import { redisConnection} from "../redis/redisClient.js";
 import { indexUsernameSearch } from "../utils/indexUsernameSearch.js";

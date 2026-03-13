@@ -1,24 +1,25 @@
-// lib/redis.js
+// src/redis/redisClient.js
 import Redis from "ioredis";
 
-const useTLS = process.env.REDIS_URL?.startsWith("rediss://");
+if (!process.env.REDIS_URL) throw new Error("❌ REDIS_URL is not defined");
 
-export const redisConnection = {
-  url: process.env.REDIS_URL,
-  tls: useTLS ? {} : undefined,
+const REDIS_URL = process.env.REDIS_PRIVATE_URL || process.env.REDIS_URL;
+const useTLS = REDIS_URL.startsWith("rediss://");
+
+const redis = new Redis(REDIS_URL, {
   maxRetriesPerRequest: null,
   keepAlive: 10000,
   enableOfflineQueue: true,
+  tls: useTLS ? {} : undefined,
   retryStrategy: (times) => {
     if (times > 10) return null;
     return Math.min(times * 500, 3000);
   },
-};
+});
 
-const redis = new Redis(process.env.REDIS_URL, redisConnection);
-
-redis.once("connect", () => console.log("Redis connected"));
+redis.once("connect", () => console.log("✅ Redis connected"));
 redis.on("error", (err) => console.error("Redis error:", err.message));
 redis.on("reconnecting", () => console.log("Redis reconnecting..."));
 
+export const redisConnection = redis; // ← same instance, BullMQ gets a real Redis instance
 export default redis;
