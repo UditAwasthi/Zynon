@@ -39,6 +39,31 @@ const worker = new Worker(
 
         break;
 
+      case NOTIFICATION_JOBS.COMMENT_LIKE:
+
+        const key1 = `notif:comment_like:${job.data.commentId}:${recipientId}`;
+
+        const exists12 = await redis.get(key);
+
+        if (exists12) {
+          return; // skip duplicate notification
+        }
+
+        await redis.set(key1, "1", "EX", 15);
+
+        notification = await Notification.create({
+          recipient: recipientId,
+          actor: actorId,
+          type: "COMMENT_LIKE",
+          entityType: "comment",
+          entityId: job.data.commentId,
+          metadata: {
+            postId: job.data.postId
+          }
+        });
+
+        break;
+
       case NOTIFICATION_JOBS.POST_COMMENT:
 
         const commentKey = `notif:comment:${job.data.postId}:${recipientId}`;

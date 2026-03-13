@@ -60,7 +60,14 @@ export const followUser = asyncHandler(async (req, res) => {
 
         await session.commitTransaction();
         session.endSession();
-
+        try {
+            notificationService.sendFollowRequestNotification({
+                actorId: req.user.id,
+                recipientId: targetUserId
+            });
+        } catch (err) {
+            console.error("Follow request notification failed:", err.message);
+        }
         return sendSuccess(
             res,
             201,
@@ -276,7 +283,14 @@ export const acceptFollowRequest = asyncHandler(async (req, res) => {
 
         await session.commitTransaction();
         session.endSession();
-
+        try {
+            notificationService.sendFollowAcceptedNotification({
+                actorId: currentUserId,
+                recipientId: requestUserId
+            });
+        } catch (err) {
+            console.error("Follow accepted notification failed:", err.message);
+        }
         return sendSuccess(res, 200, "Follow request accepted");
 
     } catch (error) {

@@ -13,6 +13,14 @@ export const notificationService = {
       { attempts: 3 }
     );
   },
+  sendCommentLikeNotification: async ({ actorId, recipientId, commentId }) => {
+    if (actorId.toString() === recipientId.toString()) return;
+    await notificationQueue.add(
+      NOTIFICATION_JOBS.COMMENT_LIKE,
+      { actorId, recipientId, commentId },
+      { attempts: 3 }
+    );
+  },
   sendNewPostNotification: async ({ actorId, postId }) => {
 
     await notificationQueue.add(

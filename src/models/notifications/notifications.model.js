@@ -21,8 +21,10 @@ const notificationSchema = new mongoose.Schema(
                 "NEW_MESSAGE",
                 "NEW_POST",
                 "FOLLOW_REQUEST",
+                "FOLLOW_ACCEPTED",
                 "POST_LIKE",
                 "PoST_COMMENT",
+                "COMMENT_LIKE",
                 "MENTION"
             ],
             required: true,
@@ -58,6 +60,6 @@ const notificationSchema = new mongoose.Schema(
 }
 );
 
-notificationSchema.index({recipient:1,createdAt:-1});
+notificationSchema.index({ recipient: 1, createdAt: -1 });
 
-export default mongoose.model("Notification",notificationSchema);
+export default mongoose.model("Notification", notificationSchema);

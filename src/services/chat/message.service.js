@@ -19,7 +19,7 @@ const safeRedis = async (fn) => {
    GET MESSAGES
 ===================================== */
 
-export const getMessages = async (userId,threadId,{ limit = 30, cursor } = {}) => {
+export const getMessages = async (userId, threadId, { limit = 30, cursor } = {}) => {
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
         throw new ApiError(400, "invalid threadId");
@@ -128,11 +128,12 @@ export const sendMessage = async (userId, { threadId, content, mediaUrl, mediaTy
     io.to(objectThreadId.toString()).emit("new_message", populatedMessage);
 
     // Update unread counters for other participants
+
     const receivers = thread.participants
         .map(p => p.userId.toString())
         .filter(id => id !== userId.toString());
-
     for (const receiverId of receivers) {
+
         await safeRedis(() => redis.incr(`unread:${threadId}:${receiverId}`));
 
         const receiverSocketId = await safeRedis(() =>
@@ -145,8 +146,19 @@ export const sendMessage = async (userId, { threadId, content, mediaUrl, mediaTy
                 userId: receiverId
             });
         }
-    }
 
+        // MESSAGE NOTIFICATION
+        try {
+            notificationService.sendMessageNotification({
+                actorId: userId,
+                recipientId: receiverId,
+                messageId: message._id,
+                threadId: threadId
+            });
+        } catch (err) {
+            console.error("Message notification failed:", err.message);
+        }
+    }
     return populatedMessage;
 };
 

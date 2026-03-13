@@ -7,7 +7,7 @@ import { sendSuccess } from "../../utils/apiResponse.js";
 import cloudinary from "cloudinary";
 import mongoose from "mongoose";
 import UserProfile from "../../models/userProfile.model.js";
-
+import notificationService from "../../services/notification.service.js"
 
 //Generate Cloudinary Upload Signature
 
@@ -286,62 +286,109 @@ export const deletePost = asyncHandler(async (req, res) => {
 
 export const toggleLike = asyncHandler(async (req, res) => {
 
-    const userId = req.user.id
-    const { targetId, targetType } = req.body
+    const userId = req.user.id;
+    const { targetId, targetType } = req.body;
 
     if (!["Post", "Comment"].includes(targetType)) {
-        throw new ApiError(400, "Invalid target type")
+        throw new ApiError(400, "Invalid target type");
     }
 
     const existing = await Like.findOne({
         user: userId,
         targetId,
         targetType
-    })
+    });
 
+    // UNLIKE
     if (existing) {
 
-        await existing.deleteOne()
+        await existing.deleteOne();
 
         if (targetType === "Post") {
-            await Post.findByIdAndUpdate(targetId, { $inc: { likesCount: -1 } })
+            await Post.findByIdAndUpdate(targetId, { $inc: { likesCount: -1 } });
         }
 
         if (targetType === "Comment") {
-            await Comment.findByIdAndUpdate(targetId, { $inc: { likesCount: -1 } })
+            await Comment.findByIdAndUpdate(targetId, { $inc: { likesCount: -1 } });
         }
 
-        return sendSuccess(res, 200, "Unliked")
-
+        return sendSuccess(res, 200, "Unliked");
     }
 
+    // LIKE
     await Like.create({
         user: userId,
         targetId,
         targetType
-    })
+    });
+
+    let recipientId;
 
     if (targetType === "Post") {
-        await Post.findByIdAndUpdate(targetId, { $inc: { likesCount: 1 } })
+
+        const post = await Post.findByIdAndUpdate(
+            targetId,
+            { $inc: { likesCount: 1 } },
+            { new: true }
+        ).select("author");
+
+        recipientId = post.author;
+
+        try {
+            notificationService.sendPostLikeNotification({
+                actorId: userId,
+                recipientId,
+                postId: targetId
+            });
+        } catch (err) {
+            console.error("Post like notification failed:", err.message);
+        }
+
     }
 
     if (targetType === "Comment") {
-        await Comment.findByIdAndUpdate(targetId, { $inc: { likesCount: 1 } })
+
+        const comment = await Comment.findByIdAndUpdate(
+            targetId,
+            { $inc: { likesCount: 1 } },
+            { new: true }
+        ).select("author post");
+
+        recipientId = comment.author;
+
+        try {
+            notificationService.sendPostCommentNotification({
+                actorId: userId,
+                recipientId,
+                commentId: targetId,
+                postId: comment.post
+            });
+        } catch (err) {
+            console.error("Comment like notification failed:", err.message);
+        }
+
     }
 
-    return sendSuccess(res, 200, "Liked")
+    return sendSuccess(res, 200, "Liked");
 
-})
+});
 //comment on post
 
 export const createComment = asyncHandler(async (req, res) => {
 
-    const userId = req.user.id
-    const { postId } = req.params
-    const { text, parentComment } = req.body
+    const userId = req.user.id;
+    const { postId } = req.params;
+    const { text, parentComment } = req.body;
 
     if (!text) {
-        throw new ApiError(400, "Comment cannot be empty")
+        throw new ApiError(400, "Comment cannot be empty");
+    }
+
+    // get post author for notification
+    const post = await Post.findById(postId).select("author");
+
+    if (!post) {
+        throw new ApiError(404, "Post not found");
     }
 
     const comment = await Comment.create({
@@ -349,22 +396,33 @@ export const createComment = asyncHandler(async (req, res) => {
         post: postId,
         text,
         parentComment: parentComment || null
-    })
+    });
 
     await Post.findByIdAndUpdate(postId, {
         $inc: { commentsCount: 1 }
-    })
+    });
 
     if (parentComment) {
         await Comment.findByIdAndUpdate(parentComment, {
             $inc: { repliesCount: 1 }
-        })
+        });
     }
 
-    return sendSuccess(res, 201, "Comment added", comment)
+    // send notification
+    try {
+        notificationService.sendPostCommentNotification({
+            actorId: userId,
+            recipientId: post.author,
+            commentId: comment._id,
+            postId: postId
+        });
+    } catch (err) {
+        console.error("Comment notification failed:", err.message);
+    }
 
-})
+    return sendSuccess(res, 201, "Comment added", comment);
 
+});
 //get comments for a post with pagination
 
 export const getComments = asyncHandler(async (req, res) => {
