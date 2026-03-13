@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
-import { connection } from "../queues/connection.js";
-import Notification from "../models/notification.model.js";
+import { redisConnection } from "../redis/redisClient.js";
+import Notification from "../models/notifications/notifications.model.js";
+import Follow from "../models/social/follow.model.js"; // ✅ added
 import { getIO } from "../socket/socket.js";
 import redis from "../redis/redisClient.js";
 import { NOTIFICATION_JOBS } from "../modules/notifications/notification.jobs.js";
@@ -10,7 +11,8 @@ const worker = new Worker(
 
     const { actorId, recipientId } = job.data;
 
-    if (actorId.toString() === recipientId.toString()) return;
+    // Guard only for jobs that have a recipientId (NEW_POST fans out to followers instead)
+    if (recipientId && actorId.toString() === recipientId.toString()) return;
 
     let notification;
 
@@ -43,7 +45,7 @@ const worker = new Worker(
 
         const key1 = `notif:comment_like:${job.data.commentId}:${recipientId}`;
 
-        const exists12 = await redis.get(key);
+        const exists12 = await redis.get(key1); // ✅ was wrongly using `key` from POST_LIKE scope
 
         if (exists12) {
           return; // skip duplicate notification
@@ -174,7 +176,7 @@ const worker = new Worker(
 
   },
   {
-    connection,
+    connection : redisConnection,
     concurrency: 5
   }
 );

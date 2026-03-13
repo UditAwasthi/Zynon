@@ -7,7 +7,7 @@ import { sendSuccess } from "../../utils/apiResponse.js";
 import cloudinary from "cloudinary";
 import mongoose from "mongoose";
 import UserProfile from "../../models/userProfile.model.js";
-import notificationService from "../../services/notification.service.js"
+import { notificationService } from "../../services/notification.service.js"
 
 //Generate Cloudinary Upload Signature
 
@@ -64,13 +64,19 @@ export const createPost = asyncHandler(async (req, res) => {
             { $inc: { postsCount: 1 } },
             { session }
         );
+        // in createPost, replace your notification try/catch with this:
         try {
-            notificationService.sendNewPostNotification({
+            console.log("🔔 Sending new post notification", {
                 actorId: req.user.id,
-                postId: post._id
+                postId: post[0]._id
             });
+            await notificationService.sendNewPostNotification({
+                actorId: req.user.id,
+                postId: post[0]._id
+            });
+            console.log("✅ Notification job added to queue");
         } catch (err) {
-            console.error("Notification job failed:", err.message);
+            console.error("❌ Notification job failed:", err.message, err.stack);
         }
         return sendSuccess(res, 201, "Post created successfully", post[0]);
 
@@ -357,11 +363,11 @@ export const toggleLike = asyncHandler(async (req, res) => {
         recipientId = comment.author;
 
         try {
-            notificationService.sendPostCommentNotification({
+            notificationService.sendCommentLikeNotification({
                 actorId: userId,
                 recipientId,
                 commentId: targetId,
-                postId: comment.post
+                postId: comment.post    // make sure your service/worker accepts postId here too
             });
         } catch (err) {
             console.error("Comment like notification failed:", err.message);

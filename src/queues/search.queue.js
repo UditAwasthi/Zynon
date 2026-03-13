@@ -1,6 +1,6 @@
 import { Queue } from "bullmq";
-import { connection } from "./connection.js";
+import { redisConnection } from "../redis/redisClient.js";
 
 export const searchQueue = new Queue("search-index", {
-  connection
+  connection: redisConnection,
 });

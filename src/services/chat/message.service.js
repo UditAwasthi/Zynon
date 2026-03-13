@@ -4,7 +4,7 @@ import Thread from "../../models/chat/thread.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { getIO } from "../../socket/socket.js";
 import redis from "../../redis/redisClient.js";
-
+import { notificationService } from "../notification.service.js";
 // Safe redis helper — never throws, just logs
 const safeRedis = async (fn) => {
     try {

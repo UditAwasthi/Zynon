@@ -1,7 +1,7 @@
 // search.worker.js
 import "dotenv/config"
 import { Worker } from "bullmq";
-import { connection } from "../queues/connection.js";
+import { redisConnection} from "../redis/redisClient.js";
 import { indexUsernameSearch } from "../utils/indexUsernameSearch.js";
 
 const worker = new Worker(
@@ -13,7 +13,7 @@ const worker = new Worker(
     }
   },
   {
-    connection,
+    connection : redisConnection,
     concurrency: 5,
   }
 );
@@ -27,5 +27,5 @@ worker.on("failed", (job, err) => {
 });
 
 worker.on("error", err => {
-  console.error("Worker connection error (non-fatal):", err.message)
+  console.error("Worker connection : redisConnection error (non-fatal):", err.message)
 });

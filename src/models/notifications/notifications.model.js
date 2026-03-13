@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import { TIME_SERIES_REDUCERS } from "redis";
 
 const notificationSchema = new mongoose.Schema(
     {
@@ -13,7 +12,7 @@ const notificationSchema = new mongoose.Schema(
         actor: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: TIME_SERIES_REDUCERS
+            required: true 
         },
         type: {
             type: String,
@@ -23,7 +22,7 @@ const notificationSchema = new mongoose.Schema(
                 "FOLLOW_REQUEST",
                 "FOLLOW_ACCEPTED",
                 "POST_LIKE",
-                "PoST_COMMENT",
+                "POST_COMMENT",  // ✅ fixed: was "PoST_COMMENT" (typo broke all comment notifications)
                 "COMMENT_LIKE",
                 "MENTION"
             ],

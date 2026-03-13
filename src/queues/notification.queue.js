@@ -1,6 +1,6 @@
 import { Queue } from "bullmq";
-import { connection } from "./connection.js";
+import { redisConnection } from "../redis/redisClient.js";
 
 export const notificationQueue = new Queue("notifications", {
-  connection
+  connection: redisConnection,
 });

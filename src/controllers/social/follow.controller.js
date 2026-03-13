@@ -4,6 +4,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { sendSuccess } from "../../utils/apiResponse.js";
 import mongoose from "mongoose";
+import { notificationService } from "../../services/notification.service.js";
 // FOLLOW USER
 export const followUser = asyncHandler(async (req, res) => {
 
