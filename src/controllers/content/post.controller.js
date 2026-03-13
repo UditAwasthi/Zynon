@@ -64,7 +64,14 @@ export const createPost = asyncHandler(async (req, res) => {
             { $inc: { postsCount: 1 } },
             { session }
         );
-
+        try {
+            notificationService.sendNewPostNotification({
+                actorId: req.user.id,
+                postId: post._id
+            });
+        } catch (err) {
+            console.error("Notification job failed:", err.message);
+        }
         return sendSuccess(res, 201, "Post created successfully", post[0]);
 
     });
@@ -187,7 +194,7 @@ export const getSinglePost = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Post not found");
     }
 
-   
+
 
     return sendSuccess(res, 200, "Post fetched successfully", post[0]);
 
@@ -656,7 +663,7 @@ export const deleteComment = asyncHandler(async (req, res) => {
 
 
     const session = await mongoose.startSession()
-    
+
 
     let deletedReplies = 0;
 
