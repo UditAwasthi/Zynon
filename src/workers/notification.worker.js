@@ -33,17 +33,17 @@ async function emitToUser(recipientId, notification) {
 
 const handlers = {
   [NOTIFICATION_JOBS.POST_LIKE]: async ({ actorId, recipientId, postId }) => {
-    if (await isDuplicate(`notif:like:${postId}:${recipientId}`)) return;
+    if (await isDuplicate(`notif:like:${postId}:${actorId}:${recipientId}`)) return;
     return Notification.create({ recipient: recipientId, actor: actorId, type: "POST_LIKE", entityType: "post", entityId: postId });
   },
 
   [NOTIFICATION_JOBS.COMMENT_LIKE]: async ({ actorId, recipientId, commentId, postId }) => {
-    if (await isDuplicate(`notif:comment_like:${commentId}:${recipientId}`)) return;
+    if (await isDuplicate(`notif:comment_like:${commentId}:${actorId}:${recipientId}`)) return;
     return Notification.create({ recipient: recipientId, actor: actorId, type: "COMMENT_LIKE", entityType: "comment", entityId: commentId, metadata: { postId } });
   },
 
   [NOTIFICATION_JOBS.POST_COMMENT]: async ({ actorId, recipientId, commentId, postId }) => {
-    if (await isDuplicate(`notif:comment:${postId}:${recipientId}`, 10)) return;
+    if (await isDuplicate(`notif:comment:${postId}:${actorId}:${recipientId}`, 10)) return;
     return Notification.create({ recipient: recipientId, actor: actorId, type: "POST_COMMENT", entityType: "comment", entityId: commentId, metadata: { postId } });
   },
 
@@ -51,11 +51,20 @@ const handlers = {
     return Notification.create({ recipient: recipientId, actor: actorId, type: "NEW_MESSAGE", entityType: "message", entityId: messageId, metadata: { threadId } });
   },
 
+  // Public follow — "started following you"
+  [NOTIFICATION_JOBS.FOLLOW]: async ({ actorId, recipientId }) => {
+    if (await isDuplicate(`notif:follow:${actorId}:${recipientId}`, 30)) return;
+    return Notification.create({ recipient: recipientId, actor: actorId, type: "FOLLOW", entityType: "follow" });
+  },
+
+  // Private follow — "sent you a follow request"
   [NOTIFICATION_JOBS.FOLLOW_REQUEST]: async ({ actorId, recipientId }) => {
+    if (await isDuplicate(`notif:follow_req:${actorId}:${recipientId}`, 30)) return;
     return Notification.create({ recipient: recipientId, actor: actorId, type: "FOLLOW_REQUEST", entityType: "follow" });
   },
 
   [NOTIFICATION_JOBS.FOLLOW_ACCEPTED]: async ({ actorId, recipientId }) => {
+    if (await isDuplicate(`notif:follow_acc:${actorId}:${recipientId}`, 30)) return;
     return Notification.create({ recipient: recipientId, actor: actorId, type: "FOLLOW_ACCEPTED", entityType: "follow" });
   },
 
@@ -64,7 +73,7 @@ const handlers = {
   },
 
   [NOTIFICATION_JOBS.NEW_POST]: async ({ actorId, postId }) => {
-    const followers = await Follow.find({ following: actorId }).select("follower");
+    const followers = await Follow.find({ following: actorId, status: "active" }).select("follower");
     if (!followers.length) return;
 
     const notifications = await Notification.insertMany(
@@ -74,7 +83,8 @@ const handlers = {
       }))
     );
 
-    await Promise.all(notifications.map(n => emitToUser(n.recipient, n)));
+    // Fix: use n.recipient per notification, not the outer recipientId (undefined for NEW_POST)
+    await Promise.all(notifications.map(n => emitToUser(n.recipient.toString(), n)));
   },
 };
 

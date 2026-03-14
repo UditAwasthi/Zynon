@@ -13,11 +13,11 @@ export const notificationService = {
       { attempts: 3 }
     );
   },
-  sendCommentLikeNotification: async ({ actorId, recipientId, commentId }) => {
+  sendCommentLikeNotification: async ({ actorId, recipientId, commentId, postId }) => {
     if (actorId.toString() === recipientId.toString()) return;
     await notificationQueue.add(
       NOTIFICATION_JOBS.COMMENT_LIKE,
-      { actorId, recipientId, commentId },
+      { actorId, recipientId, commentId, postId },
       { attempts: 3 }
     );
   },
@@ -41,6 +41,15 @@ export const notificationService = {
     );
   },
 
+
+  sendFollowNotification: async ({ actorId, recipientId }) => {
+    if (actorId.toString() === recipientId.toString()) return;
+    await notificationQueue.add(
+      NOTIFICATION_JOBS.FOLLOW,
+      { actorId, recipientId },
+      { attempts: 3 }
+    );
+  },
 
   sendFollowRequestNotification: async ({ actorId, recipientId }) => {
 

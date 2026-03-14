@@ -1,6 +1,7 @@
 export const NOTIFICATION_JOBS = {
   NEW_MESSAGE: "NEW_MESSAGE",
   NEW_POST: "NEW_POST",
+  FOLLOW: "FOLLOW",             // public account — "started following you"
   FOLLOW_REQUEST: "FOLLOW_REQUEST",
   FOLLOW_ACCEPTED: "FOLLOW_ACCEPTED",
   POST_LIKE: "POST_LIKE",

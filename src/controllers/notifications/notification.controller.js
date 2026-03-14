@@ -79,7 +79,9 @@ export const markNotificationsRead = asyncHandler(async (req, res) => {
         }
     );
 
-    await redis.decrby(`notif:unread:${userId}`, ids.length);
+    // Clamp to 0 — decrementing by ids.length can go negative if some were already read
+    const current = parseInt(await redis.get(`notif:unread:${userId}`) || "0");
+    await redis.set(`notif:unread:${userId}`, Math.max(0, current - ids.length));
 
     return sendSuccess(
         res,

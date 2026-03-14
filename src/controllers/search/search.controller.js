@@ -7,7 +7,8 @@ import { sendSuccess } from "../../utils/apiResponse.js";
 import { ApiError } from "../../utils/ApiError.js";
 
 import redis from "../../redis/redisClient.js"
-//Search 
+
+// Search
 export const search = asyncHandler(async (req, res) => {
     const q = req.query.q?.trim()
 
@@ -15,19 +16,15 @@ export const search = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Search query required")
     }
 
+    const cacheKey = `search:${q.toLowerCase().replace(/\s+/g, " ")}`
 
-    const cacheKey = `search:${q.trim().toLowerCase().replace(/\s+/g, " ")}`
-    //cahce cehck for redis
-
+    // Cache check
     const cached = await redis.get(cacheKey)
-
     if (cached) {
-        const data = JSON.parse(cached)
-
-        return sendSuccess(res, 200, "Search results fetched (cache)", data)
+        return sendSuccess(res, 200, "Search results fetched (cache)", JSON.parse(cached))
     }
-    //username search 
 
+    // ── Username prefix search ────────────────────────────────────────────────
     const users = await User.find({
         username: { $regex: `^${q}`, $options: "i" }
     })
@@ -45,7 +42,6 @@ export const search = asyncHandler(async (req, res) => {
 
     const usernameResults = users.map(u => {
         const p = profileMap.get(u._id.toString())
-
         return {
             _id: u._id,
             username: u.username,
@@ -56,8 +52,7 @@ export const search = asyncHandler(async (req, res) => {
         }
     })
 
-    //name and bio 
-
+    // ── Name / bio full-text search ───────────────────────────────────────────
     const profileResults = await UserProfile.find(
         { $text: { $search: q } },
         { score: { $meta: "textScore" } }
@@ -66,41 +61,40 @@ export const search = asyncHandler(async (req, res) => {
         .limit(10)
         .populate("user", "username")
 
-    const textResults = profileResults.map(p => ({
-        _id: p.user._id,
-        username: p.user.username,
-        name: p.name,
-        avatar: p.profilePicture,
-        isVerified: p.isVerified,
-        followersCount: p.followersCount
-    }))
+    const textResults = profileResults
+        // Fix: filter out orphaned UserProfile docs whose User was deleted
+        .filter(p => p.user != null)
+        .map(p => ({
+            _id: p.user._id,
+            username: p.user.username,
+            name: p.name,
+            avatar: p.profilePicture,
+            isVerified: p.isVerified,
+            followersCount: p.followersCount
+        }))
 
-    //post 
+    // Fix: deduplicate — a user can appear in both usernameResults and textResults
+    const seenIds = new Set(usernameResults.map(u => u._id.toString()))
+    const uniqueTextResults = textResults.filter(u => !seenIds.has(u._id.toString()))
 
+    const usersFinal = [...usernameResults, ...uniqueTextResults]
+
+    // ── Post caption search ───────────────────────────────────────────────────
     const posts = await Post.find({
         caption: { $regex: q, $options: "i" }
     })
         .limit(10)
         .populate("author", "username")
 
-    const usersFinal = [...usernameResults, ...textResults]
+    const result = { users: usersFinal, posts }
 
-    const result = {
-        users: usersFinal,
-        posts
-    }
-    //redis store
-
-
-    await redis.set(cacheKey, JSON.stringify(result), 'EX', 60)
+    await redis.set(cacheKey, JSON.stringify(result), "EX", 60)
 
     return sendSuccess(res, 200, "Search results fetched", result)
 })
 
-//search suggestions
+// Search suggestions
 export const searchUserSuggestions = asyncHandler(async (req, res) => {
-    const keys = await redis.keys("search:user:*")
-  
     const { q } = req.query
 
     if (!q || q.length < 1) {
@@ -120,5 +114,4 @@ export const searchUserSuggestions = asyncHandler(async (req, res) => {
     }).select("_id username")
 
     return sendSuccess(res, 200, "Suggestions fetched", users)
-
 })

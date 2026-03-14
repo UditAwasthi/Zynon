@@ -1,5 +1,6 @@
 import Follow from "../../models/social/follow.model.js";
 import UserProfile from "../../models/userProfile.model.js";
+import Notification from "../../models/notifications/notifications.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { sendSuccess } from "../../utils/apiResponse.js";
@@ -61,13 +62,23 @@ export const followUser = asyncHandler(async (req, res) => {
 
         await session.commitTransaction();
         session.endSession();
+
         try {
-            notificationService.sendFollowRequestNotification({
-                actorId: req.user.id,
-                recipientId: targetUserId
-            });
+            if (status === "active") {
+                // Public account — notify "started following you"
+                notificationService.sendFollowNotification({
+                    actorId: req.user.id,
+                    recipientId: targetUserId
+                });
+            } else {
+                // Private account — notify "sent you a follow request"
+                notificationService.sendFollowRequestNotification({
+                    actorId: req.user.id,
+                    recipientId: targetUserId
+                });
+            }
         } catch (err) {
-            console.error("Follow request notification failed:", err.message);
+            console.error("Follow notification failed:", err.message);
         }
         return sendSuccess(
             res,
@@ -284,6 +295,14 @@ export const acceptFollowRequest = asyncHandler(async (req, res) => {
 
         await session.commitTransaction();
         session.endSession();
+
+        // Mark the original FOLLOW_REQUEST notification as accepted so the
+        // frontend can show "Accepted" instead of accept/reject buttons on refresh
+        await Notification.findOneAndUpdate(
+            { actor: requestUserId, recipient: currentUserId, type: "FOLLOW_REQUEST" },
+            { status: "accepted" }
+        );
+
         try {
             notificationService.sendFollowAcceptedNotification({
                 actorId: currentUserId,
@@ -318,6 +337,13 @@ export const rejectFollowRequest = asyncHandler(async (req, res) => {
     if (!follow) {
         throw new ApiError(404, "Follow request not found");
     }
+
+    // Mark the original FOLLOW_REQUEST notification as rejected so the
+    // frontend can show "Rejected" instead of accept/reject buttons on refresh
+    await Notification.findOneAndUpdate(
+        { actor: requestUserId, recipient: currentUserId, type: "FOLLOW_REQUEST" },
+        { status: "rejected" }
+    );
 
     return sendSuccess(res, 200, "Follow request rejected");
 

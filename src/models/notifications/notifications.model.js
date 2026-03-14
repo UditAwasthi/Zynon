@@ -19,10 +19,11 @@ const notificationSchema = new mongoose.Schema(
             enum: [
                 "NEW_MESSAGE",
                 "NEW_POST",
+                "FOLLOW",
                 "FOLLOW_REQUEST",
                 "FOLLOW_ACCEPTED",
                 "POST_LIKE",
-                "POST_COMMENT",  // ✅ fixed: was "PoST_COMMENT" (typo broke all comment notifications)
+                "POST_COMMENT",
                 "COMMENT_LIKE",
                 "MENTION"
             ],
@@ -53,6 +54,14 @@ const notificationSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
             index: true
+        },
+
+        
+        // lets the frontend show "Accepted" / "Rejected" instead of buttons on refresh
+        status: {
+            type: String,
+            enum: ["pending", "accepted", "rejected"],
+            default: "pending"
         }
     }, {
     timestamps: true
