@@ -10,7 +10,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 //GET PROFILE
 export const getMyProfile = asyncHandler(async (req, res) => {
     const userId = req.user.id;
-   
+
     const profile = await UserProfile.findOne({ user: userId }).populate("user", "username email");
 
     if (!profile) {
@@ -57,13 +57,13 @@ export const updateProfile = asyncHandler(async (req, res) => {
 });
 
 //GET PROFILE BY USERNAME
-
+//ebhacned with mongo agg pipe
 export const getProfileByUsername = asyncHandler(async (req, res) => {
 
     const { username } = req.params;
     const currentUserId = req.user.id;
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username }).select("_id username");
 
     if (!user) {
         throw new ApiError(404, "User not found");
@@ -77,36 +77,76 @@ export const getProfileByUsername = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Profile not found");
     }
 
-    // followers of the profile owner
-    const theirFollowers = await Follow.find({ following: user._id })
-        .select("follower");
+    const mutualData = await Follow.aggregate([
+        {
+            $match: { following: user._id } // people who follow this profile
+        },
+        {
+            $lookup: {
+                from: "follows",
+                let: { followerId: "$follower" },
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {
+                                $and: [
+                                    { $eq: ["$following", "$$followerId"] },
+                                    { $eq: ["$follower", currentUserId] }
+                                ]
+                            }
+                        }
+                    }
+                ],
+                as: "mutual"
+            }
+        },
+        {
+            $match: { mutual: { $ne: [] } } // keep only mutuals
+        },
+        {
+            $facet: {
+                preview: [
+                    { $limit: 3 },
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "follower",
+                            foreignField: "_id",
+                            as: "user"
+                        }
+                    },
+                    { $unwind: "$user" },
+                    {
+                        $lookup: {
+                            from: "userprofiles",
+                            localField: "user._id",
+                            foreignField: "user",
+                            as: "profile"
+                        }
+                    },
+                    { $unwind: "$profile" },
+                    {
+                        $project: {
+                            _id: 0,
+                            username: "$user.username",
+                            profilePicture: "$profile.profilePicture"
+                        }
+                    }
+                ],
+                count: [
+                    { $count: "total" }
+                ]
+            }
+        }
+    ]);
 
-    const followerIds = theirFollowers.map(f => f.follower);
-
-    // mutual followers
-    const mutual = await Follow.find({
-        follower: currentUserId,
-        following: { $in: followerIds }
-    }).populate({
-        path: "following",
-        select: "username",
-    });
-
-    const mutualFollowers = await UserProfile.find({
-        user: { $in: mutual.map(m => m.following._id) }
-    })
-        .populate("user", "username")
-        .select("profilePicture");
-
-    const formattedMutuals = mutualFollowers.map(p => ({
-        username: p.user.username,
-        profilePicture: p.profilePicture
-    }));
+    const mutualFollowers = mutualData[0]?.preview || [];
+    const mutualFollowersCount = mutualData[0]?.count[0]?.total || 0;
 
     return sendSuccess(res, 200, "Profile retrieved successfully", {
         profile,
-        mutualFollowersCount: formattedMutuals.length,
-        mutualFollowers: formattedMutuals
+        mutualFollowers,
+        mutualFollowersCount
     });
 
 });
@@ -137,7 +177,7 @@ export const removeProfilePhoto = asyncHandler(async (req, res) => {
 
     const profile = await UserProfile.findOneAndUpdate(
         { user: req.user.id },
-        { $set: { profilePicture: "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y" } }, 
+        { $set: { profilePicture: "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y" } },
         { new: true }
     );
 
