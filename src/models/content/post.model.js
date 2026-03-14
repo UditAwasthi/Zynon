@@ -63,5 +63,7 @@ const PostSchema = new mongoose.Schema({
 );
 
 PostSchema.index({ author: 1, createdAt: -1 });
-
+PostSchema.index({ visibility: 1, createdAt: -1 })
+PostSchema.index({ likesCount: -1 });
+PostSchema.index({ commentsCount: -1 });
 export default mongoose.model("Post", PostSchema);

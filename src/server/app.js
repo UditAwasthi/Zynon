@@ -45,6 +45,9 @@ import postRoutes from "../routes/content/post.routes.js";
 import chatRoutes from "../routes/chat/chat.routes.js";
 import searchRoutes from "../routes/search/search.routes.js";
 import notificationRoutes from "../routes/notifications/notification.routes.js"
+import feedRoutes from "../routes/feed/feed.routes.js";
+
+app.use("/api/feed", feedRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/content", postRoutes);
 app.use("/api/auth", authRoutes);
