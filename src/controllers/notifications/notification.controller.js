@@ -18,6 +18,13 @@ export const getNotifications = asyncHandler(async (req, res) => {
         query.createdAt = { $lt: new Date(cursor) };
     }
 
+    // Exclude FOLLOW_REQUEST notifications that have already been accepted or
+    // rejected — they've been actioned and the buttons should not reappear.
+    // "pending" ones (still awaiting action) are included normally.
+    query.$nor = [
+        { type: "FOLLOW_REQUEST", status: { $in: ["accepted", "rejected"] } }
+    ];
+
     const notifications = await Notification.find(query)
         .sort({ createdAt: -1 })
         .limit(limit)
