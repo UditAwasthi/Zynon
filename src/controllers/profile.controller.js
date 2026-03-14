@@ -61,7 +61,7 @@ export const updateProfile = asyncHandler(async (req, res) => {
 export const getProfileByUsername = asyncHandler(async (req, res) => {
 
     const { username } = req.params;
-    const currentUserId = req.user.id;
+    const currentUserId = req.user?.id; // optional auth
 
     const user = await User.findOne({ username }).select("_id username");
 
@@ -77,10 +77,19 @@ export const getProfileByUsername = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Profile not found");
     }
 
+    // If user is not logged in → return empty mutuals
+    if (!currentUserId) {
+        return sendSuccess(res, 200, "Profile retrieved successfully", {
+            profile,
+            mutualFollowers: [],
+            mutualFollowersCount: 0
+        });
+    }
+
+    // -------- MUTUAL FOLLOWERS LOGIC --------
+
     const mutualData = await Follow.aggregate([
-        {
-            $match: { following: user._id } // people who follow this profile
-        },
+        { $match: { following: user._id } },
         {
             $lookup: {
                 from: "follows",
@@ -100,9 +109,7 @@ export const getProfileByUsername = asyncHandler(async (req, res) => {
                 as: "mutual"
             }
         },
-        {
-            $match: { mutual: { $ne: [] } } // keep only mutuals
-        },
+        { $match: { mutual: { $ne: [] } } },
         {
             $facet: {
                 preview: [
@@ -133,9 +140,7 @@ export const getProfileByUsername = asyncHandler(async (req, res) => {
                         }
                     }
                 ],
-                count: [
-                    { $count: "total" }
-                ]
+                count: [{ $count: "total" }]
             }
         }
     ]);
