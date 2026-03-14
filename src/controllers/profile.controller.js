@@ -1,5 +1,6 @@
 import UserProfile from "../models/userProfile.model.js";
 import User from "../models/user.model.js";
+import Follow from "../models/social/follow.model.js";
 import { uploadImage } from "../utils/uploadToCloudinary.js";
 import { sendSuccess } from "../utils/apiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
@@ -58,19 +59,55 @@ export const updateProfile = asyncHandler(async (req, res) => {
 //GET PROFILE BY USERNAME
 
 export const getProfileByUsername = asyncHandler(async (req, res) => {
+
     const { username } = req.params;
-    const user = await User.findOne({ username })
+    const currentUserId = req.user.id;
+
+    const user = await User.findOne({ username });
 
     if (!user) {
         throw new ApiError(404, "User not found");
     }
-    const profile = await UserProfile.findOne({ user: user._id }).populate("user", "username");
+
+    const profile = await UserProfile
+        .findOne({ user: user._id })
+        .populate("user", "username");
 
     if (!profile) {
         throw new ApiError(404, "Profile not found");
     }
-    return sendSuccess(res, 200, "Profile retrieved successfully", profile);
 
+    // followers of the profile owner
+    const theirFollowers = await Follow.find({ following: user._id })
+        .select("follower");
+
+    const followerIds = theirFollowers.map(f => f.follower);
+
+    // mutual followers
+    const mutual = await Follow.find({
+        follower: currentUserId,
+        following: { $in: followerIds }
+    }).populate({
+        path: "following",
+        select: "username",
+    });
+
+    const mutualFollowers = await UserProfile.find({
+        user: { $in: mutual.map(m => m.following._id) }
+    })
+        .populate("user", "username")
+        .select("profilePicture");
+
+    const formattedMutuals = mutualFollowers.map(p => ({
+        username: p.user.username,
+        profilePicture: p.profilePicture
+    }));
+
+    return sendSuccess(res, 200, "Profile retrieved successfully", {
+        profile,
+        mutualFollowersCount: formattedMutuals.length,
+        mutualFollowers: formattedMutuals
+    });
 
 });
 

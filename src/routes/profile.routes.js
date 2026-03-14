@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.get("/me", protect, getMyProfile);
 router.patch("/me", protect, updateProfile);
-router.get("/:username", getProfileByUsername);
+router.get("/:username", protect,getProfileByUsername);
 
 router.patch(
     "/photo",
