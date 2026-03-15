@@ -9,8 +9,8 @@ import {
     addMember,
     removeMember
 } from "../../services/chat/thread.service.js";
-//Create || Fetch DM THread
 
+// Create or fetch an existing DM thread
 export const createDMThread = asyncHandler(async (req, res) => {
 
     const { receiverId } = req.body;
@@ -19,83 +19,44 @@ export const createDMThread = asyncHandler(async (req, res) => {
         throw new ApiError(400, "receiverId is required");
     }
 
-    const currentUserId = req.user.id;
+    const thread = await createOrGetDMThread(req.user.id, receiverId);
 
-    const thread = await createOrGetDMThread(currentUserId, receiverId);
-
-    return sendSuccess(
-        res,
-        200,
-        "Thread fetched Successfully",
-        thread
-    );
-
-
-
+    return sendSuccess(res, 200, "Thread fetched successfully", thread);
 });
 
-//Get Inbox
-
+// Get all threads for the current user (inbox), with optional cursor pagination
 export const getInboxController = asyncHandler(async (req, res) => {
 
-    const userId = req.user.id
-    const threads = await getInbox(userId);
+    const { limit, cursor } = req.query;
 
-    return sendSuccess(
-        res,
-        200,
-        "Inbox fetched successfully",
-        threads
-    )
+    // FIX: Pass limit and cursor so pagination actually works
+    const threads = await getInbox(req.user.id, { limit, cursor });
 
-})
+    return sendSuccess(res, 200, "Inbox fetched successfully", threads);
+});
 
-
-//create gorup
-
+// Create a new group thread
 export const createGroupController = asyncHandler(async (req, res) => {
 
-  const { name, members } = req.body;
+    const { name, members } = req.body;
 
-  const thread = await createGroupThread(req.user.id, {
-    name,
-    members
-  });
+    const thread = await createGroupThread(req.user.id, { name, members });
 
-  return sendSuccess(
-    res,
-    201,
-    "Group created successfully",
-    thread
-  );
-
+    return sendSuccess(res, 201, "Group created successfully", thread);
 });
 
-//add member to gp
-
+// Add a member to a group thread
 export const addMemberController = asyncHandler(async (req, res) => {
 
-  const result = await addMember(req.user.id, req.body);
+    const result = await addMember(req.user.id, req.body);
 
-  return sendSuccess(
-    res,
-    200,
-    "Member added successfully",
-    result
-  );
-
+    return sendSuccess(res, 200, "Member added successfully", result);
 });
 
-//kick member
+// Remove (kick) a member from a group thread
 export const removeMemberController = asyncHandler(async (req, res) => {
 
-  const result = await removeMember(req.user.id, req.body);
+    const result = await removeMember(req.user.id, req.body);
 
-  return sendSuccess(
-    res,
-    200,
-    "Member removed successfully",
-    result
-  );
-
+    return sendSuccess(res, 200, "Member removed successfully", result);
 });

@@ -49,18 +49,33 @@ export const initSocket = (server) => {
     io.on("connection", async (socket) => {
 
         const userId = socket.user.id;
-  
-        // Mark user online
-        await safeRedis(() => redis.set(`user:online:${userId}`, "1", "EX", 30));
-        await safeRedis(() => redis.set(`user:socket:${userId}`, socket.id));
 
-        // Join chat thread
+        // Mark user online — TTL kept alive by periodic heartbeat
+        await safeRedis(() => redis.set(`user:online:${userId}`, "1", "EX", 60));
+        await safeRedis(() => redis.set(`user:socket:${userId}`, socket.id, "EX", 60));
+
+        // Broadcast online presence to everyone who shares a thread with this user
+        socket.broadcast.emit("user_online", { userId });
+
+        // ─── Heartbeat ───────────────────────────────────────────────────────────
+        // Client should emit "heartbeat" every ~30s to keep the online keys alive.
+        socket.on("heartbeat", async () => {
+            await safeRedis(() => redis.set(`user:online:${userId}`, "1", "EX", 60));
+            await safeRedis(() => redis.set(`user:socket:${userId}`, socket.id, "EX", 60));
+        });
+
+        // ─── Thread membership ────────────────────────────────────────────────────
         socket.on("join_thread", (threadId) => {
             socket.join(threadId);
             console.log(`User ${userId} joined thread ${threadId}`);
         });
 
-        // Message delivered
+        socket.on("leave_thread", (threadId) => {
+            socket.leave(threadId);
+            console.log(`User ${userId} left thread ${threadId}`);
+        });
+
+        // ─── Delivery receipts ────────────────────────────────────────────────────
         socket.on("message_delivered", async ({ messageId }) => {
             try {
                 await Message.updateOne(
@@ -79,33 +94,27 @@ export const initSocket = (server) => {
             }
         });
 
-        // Leave chat thread
-        socket.on("leave_thread", (threadId) => {
-            socket.leave(threadId);
-            console.log(`User ${userId} left thread ${threadId}`);
-        });
-
-        // Typing start
+        // ─── Typing indicators ────────────────────────────────────────────────────
         socket.on("typing_start", async ({ threadId }) => {
             await safeRedis(() =>
                 redis.set(`typing:${threadId}:${userId}`, "1", "EX", 5)
             );
-            socket.to(threadId).emit("user_typing", { userId });
+            socket.to(threadId).emit("user_typing", { userId, threadId });
         });
 
-        // Typing stop
         socket.on("typing_stop", async ({ threadId }) => {
             await safeRedis(() =>
                 redis.del(`typing:${threadId}:${userId}`)
             );
-            socket.to(threadId).emit("user_stop_typing", { userId });
+            socket.to(threadId).emit("user_stop_typing", { userId, threadId });
         });
 
-        // Disconnect
+        // ─── Disconnect ───────────────────────────────────────────────────────────
         socket.on("disconnect", async () => {
             console.log("User disconnected:", userId);
             await safeRedis(() => redis.del(`user:online:${userId}`));
             await safeRedis(() => redis.del(`user:socket:${userId}`));
+            socket.broadcast.emit("user_offline", { userId });
         });
     });
 };
