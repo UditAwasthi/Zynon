@@ -112,6 +112,8 @@ export const getInbox = async (userId, { limit = 20, cursor } = {}) => {
             threadId: thread._id,
             type: thread.type,
             user: otherUser,
+            name: thread.type === "group" ? (thread.name ?? null) : null,
+            avatar: thread.type === "group" ? (thread.avatar ?? null) : null,
             lastMessage: thread.lastMessage || null,
             lastActivity: thread.lastActivity,
             messageCount: thread.messageCount
@@ -125,6 +127,8 @@ export const createGroupThread = async (creatorId, { name, members }) => {
   if (!members || members.length < 2)
     throw new ApiError(400, "Group must have at least 2 members");
 
+  const now = new Date();
+
   const participants = [
     { userId: creatorId, role: "owner" },
     ...members.map(id => ({ userId: id, role: "member" }))
@@ -134,10 +138,21 @@ export const createGroupThread = async (creatorId, { name, members }) => {
     type: "group",
     name,
     participants,
-    createdBy: creatorId
+    createdBy: creatorId,
+    lastActivity: now   // ← set so inbox sort works immediately
   });
 
-  return thread;
+  // Return inbox-compatible shape so frontend can prepend without shape mismatch
+  return {
+    threadId: thread._id,
+    type: "group",
+    user: null,
+    name: thread.name,
+    avatar: thread.avatar ?? null,
+    lastMessage: null,
+    lastActivity: thread.lastActivity,
+    messageCount: 0
+  };
 };
 
 //add memeber to group
@@ -148,7 +163,7 @@ export const addMember = async (userId, { threadId, memberId }) => {
   if (!thread) throw new ApiError(404, "Thread not found");
 
   const isAdmin = thread.participants.some(
-    p => p.userId.toString() === userId && ["admin","owner"].includes(p.role)
+    p => p.userId.toString() === userId.toString() && ["admin","owner"].includes(p.role)
   );
 
   if (!isAdmin) throw new ApiError(403, "Only admins can add members");
@@ -173,7 +188,7 @@ export const removeMember = async (userId, { threadId, memberId }) => {
   if (!thread) throw new ApiError(404, "Thread not found");
 
   const isAdmin = thread.participants.some(
-    p => p.userId.toString() === userId && ["admin","owner"].includes(p.role)
+    p => p.userId.toString() === userId.toString() && ["admin","owner"].includes(p.role)
   );
 
   if (!isAdmin) throw new ApiError(403, "Only admins can remove members");
