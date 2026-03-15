@@ -120,6 +120,13 @@ export const sendMessage = async (userId, { threadId,
         };
 
         messageData.type = "forward";
+
+        // Copy original content/attachments so the model pre-save hook passes.
+        // The model validates that at least one of content/attachments/postId exists —
+        // a forward without these would fail that check.
+        if (original.content)              messageData.content     = original.content;
+        if (original.attachments?.length)  messageData.attachments = original.attachments;
+        if (original.postId)               messageData.postId      = original.postId;
     }
 
     if (replyTo) {
@@ -153,8 +160,9 @@ export const sendMessage = async (userId, { threadId,
 
     const io = getIO();
 
-    // Realtime message delivery
-    // io.to(objectThreadId.toString()).emit("new_message", populatedMessage);
+    // Emit new_message so the sender's chat view updates immediately
+    // and recipients see the message in real-time without refresh
+    io.to(objectThreadId.toString()).emit("new_message", populatedMessage);
     io.to(objectThreadId.toString()).emit("thread_update", {
         threadId,
         lastMessage: populatedMessage
