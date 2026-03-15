@@ -1,6 +1,17 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { sendSuccess } from "../../utils/apiResponse.js";
-import { getMessages, sendMessage, markMessagesSeen, addReaction } from "../../services/chat/message.service.js";
+import {
+    getMessages,
+    sendMessage,
+    markMessagesSeen,
+    addReaction,
+    forwardMessage,
+    pinMessage,
+    searchMessages,
+    deleteMessage,
+    editMessage,
+} from "../../services/chat/message.service.js";
+
 import cloudinary from "cloudinary";
 
 //getinbox
@@ -28,8 +39,21 @@ export const getMessagesController = asyncHandler(async (req, res) => {
 
 export const sendMessageController = asyncHandler(async (req, res) => {
 
-    const { threadId, content, mediaUrl, mediaType, mediaMeta } = req.body;
-    const message = await sendMessage(req.user.id, { threadId, content, mediaUrl, mediaType, mediaMeta });
+    const { threadId,
+        content,
+        attachments,
+        postId,
+        forwardMessageId,
+        replyTo
+    } = req.body;
+    const message = await sendMessage(req.user.id, {
+        threadId,
+        content,
+        attachments,
+        postId,
+        forwardMessageId,
+        replyTo
+    });
 
     return sendSuccess(
         res,
@@ -42,27 +66,27 @@ export const sendMessageController = asyncHandler(async (req, res) => {
 //read receipt
 export const markMessagesSeenController = asyncHandler(async (req, res) => {
 
-  const result = await markMessagesSeen(req.user.id, req.body);
+    const result = await markMessagesSeen(req.user.id, req.body);
 
-  return sendSuccess(
-    res,
-    200,
-    "Messages marked as seen",
-    result
-  );
+    return sendSuccess(
+        res,
+        200,
+        "Messages marked as seen",
+        result
+    );
 });
 
 //react to message
 export const addReactionController = asyncHandler(async (req, res) => {
 
-  const result = await addReaction(req.user.id, req.body);
+    const result = await addReaction(req.user.id, req.body);
 
-  return sendSuccess(
-    res,
-    200,
-    "Reaction added",
-    result
-  );
+    return sendSuccess(
+        res,
+        200,
+        "Reaction added",
+        result
+    );
 
 });
 
@@ -85,4 +109,92 @@ export const generateChatUploadSignature = asyncHandler(async (req, res) => {
         cloudName: process.env.CLOUDINARY_CLOUD_NAME,
         folder: "zynon/messages"
     });
+});
+
+
+//forward message
+
+export const forwardMessageController = asyncHandler(async (req, res) => {
+
+  const { messageId, threadId } = req.body;
+
+  const result = await forwardMessage(req.user.id, {
+    messageId,
+    threadId
+  });
+
+  return sendSuccess(
+    res,
+    201,
+    "Message forwarded successfully",
+    result
+  );
+
+});
+
+//pin message
+export const pinMessageController = asyncHandler(async (req, res) => {
+
+  const { messageId } = req.body;
+
+  const result = await pinMessage(req.user.id, {
+    messageId
+  });
+
+  return sendSuccess(
+    res,
+    200,
+    "Message pinned successfully",
+    result
+  );
+
+});
+
+//search message
+export const searchMessagesController = asyncHandler(async (req, res) => {
+
+  const { query } = req.query;
+
+  const messages = await searchMessages(req.user.id, {
+    query
+  });
+
+  return sendSuccess(
+    res,
+    200,
+    "Search results fetched successfully",
+    messages
+  );
+
+});
+// delete message
+export const deleteMessageController = asyncHandler(async (req, res) => {
+
+  const { messageId } = req.body;
+
+  const result = await deleteMessage(req.user.id, { messageId });
+
+  return sendSuccess(
+    res,
+    200,
+    "Message deleted successfully",
+    result
+  );
+
+});
+
+// edit message
+export const editMessageController = asyncHandler(async (req, res) => {
+
+  const { messageId, content } = req.body;
+
+  const result = await editMessage(req.user.id, { messageId, content });
+
+  return sendSuccess(
+    res,
+    200,
+    "Message edited successfully",
+    result
+  );
+
 });

@@ -2,98 +2,140 @@ import mongoose from "mongoose";
 
 const participantSchema = new mongoose.Schema({
 
-    userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: true
-    },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
 
-    role: {
-        type: String,
-        enum: ["member", "admin"],
-        default: "member"
-    },
+  role: {
+    type: String,
+    enum: ["member", "admin", "owner"],
+    default: "member"
+  },
 
-    joinedAt: {
-        type: Date,
-        default: Date.now
-    }
+  joinedAt: {
+    type: Date,
+    default: Date.now
+  }
 
 }, { _id: false });
 
+
+const permissionsSchema = new mongoose.Schema({
+
+  sendMessages: {
+    type: Boolean,
+    default: true
+  },
+
+  addMembers: {
+    type: Boolean,
+    default: true
+  },
+
+  removeMembers: {
+    type: Boolean,
+    default: false
+  },
+
+  changeGroupInfo: {
+    type: Boolean,
+    default: false
+  },
+
+  pinMessages: {
+    type: Boolean,
+    default: true
+  }
+
+}, { _id: false });
+
+
 const threadSchema = new mongoose.Schema({
 
-    participants: {
-        type: [participantSchema],
-        validate: v => v.length >= 2
+  participants: {
+    type: [participantSchema],
+    validate: v => v.length >= 2
+  },
+
+  type: {
+    type: String,
+    enum: ["dm", "group"],
+    default: "dm"
+  },
+
+  // group info
+  name: String,
+
+  avatar: String,
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  },
+
+  // permissions
+  permissions: {
+    type: permissionsSchema,
+    default: () => ({})
+  },
+
+  // pinned messages
+  pinnedMessages: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Message"
+  }],
+
+  // prevent duplicate DM
+  dmKey: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+
+  lastMessage: {
+
+    messageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message"
     },
 
-    type: {
-        type: String,
-        enum: ["dm", "group"],
-        default: "dm"
+    senderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
     },
 
-    //Prevent duplicate DM threads Only used when type = dm
-    dmKey: {
-        type: String,
-        unique: true,
-        sparse: true
+    content: String,
+
+    mediaType: {
+      type: String,
+      enum: ["image", "video", "audio", "file"]
     },
 
-    lastMessage: {
+    createdAt: Date
+  },
 
-        messageId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Message"
-        },
+  lastActivity: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
 
-        senderId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User"
-        },
+  messageCount: {
+    type: Number,
+    default: 0
+  },
 
-        content: {
-            type: String
-        },
+  deletedFor: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  }],
 
-        mediaType: {
-            type: String,
-            enum: ["image", "video", "audio", "file"]
-        },
-
-        createdAt: {
-            type: Date
-        }
-
-    },
-
-    lastActivity: {
-        type: Date,
-        default: Date.now,
-        index: true
-    },
-
-    messageCount: {
-        type: Number,
-        default: 0
-    },
-
-
-    //Allows "delete chat for me"
-
-    deletedFor: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    }],
-
-
-    //   Archiving chats
-
-    isArchived: {
-        type: Boolean,
-        default: false
-    }
+  isArchived: {
+    type: Boolean,
+    default: false
+  }
 
 }, { timestamps: true });
 

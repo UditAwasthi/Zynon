@@ -119,3 +119,69 @@ export const getInbox = async (userId, { limit = 20, cursor } = {}) => {
     });
     return inbox;
 };
+//create group
+export const createGroupThread = async (creatorId, { name, members }) => {
+
+  if (!members || members.length < 2)
+    throw new ApiError(400, "Group must have at least 2 members");
+
+  const participants = [
+    { userId: creatorId, role: "owner" },
+    ...members.map(id => ({ userId: id, role: "member" }))
+  ];
+
+  const thread = await Thread.create({
+    type: "group",
+    name,
+    participants,
+    createdBy: creatorId
+  });
+
+  return thread;
+};
+
+//add memeber to group
+export const addMember = async (userId, { threadId, memberId }) => {
+
+  const thread = await Thread.findById(threadId);
+
+  if (!thread) throw new ApiError(404, "Thread not found");
+
+  const isAdmin = thread.participants.some(
+    p => p.userId.toString() === userId && ["admin","owner"].includes(p.role)
+  );
+
+  if (!isAdmin) throw new ApiError(403, "Only admins can add members");
+
+  await Thread.updateOne(
+    { _id: threadId },
+    {
+      $addToSet: {
+        participants: { userId: memberId, role: "member" }
+      }
+    }
+  );
+
+  return { success: true };
+};
+
+//kick member
+export const removeMember = async (userId, { threadId, memberId }) => {
+
+  const thread = await Thread.findById(threadId);
+
+  if (!thread) throw new ApiError(404, "Thread not found");
+
+  const isAdmin = thread.participants.some(
+    p => p.userId.toString() === userId && ["admin","owner"].includes(p.role)
+  );
+
+  if (!isAdmin) throw new ApiError(403, "Only admins can remove members");
+
+  await Thread.updateOne(
+    { _id: threadId },
+    { $pull: { participants: { userId: memberId } } }
+  );
+
+  return { success: true };
+};

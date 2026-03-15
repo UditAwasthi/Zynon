@@ -62,14 +62,19 @@ export const getMessages = async (userId, threadId, { limit = 30, cursor } = {})
    SEND MESSAGE
 ===================================== */
 
-export const sendMessage = async (userId, { threadId, content, mediaUrl, mediaType, mediaMeta }) => {
+export const sendMessage = async (userId, { threadId,
+    content,
+    attachments,
+    postId,
+    forwardMessageId,
+    replyTo }) => {
 
     if (!mongoose.Types.ObjectId.isValid(threadId)) {
         throw new ApiError(400, "Invalid threadId");
     }
 
-    if (!content?.trim() && !mediaUrl) {
-        throw new ApiError(400, "Message must contain text or media");
+    if (!content?.trim() && (!attachments || attachments.length === 0) && !postId && !forwardMessageId) {
+        throw new ApiError(400, "Message must contain text, attachment, or post");
     }
 
     const objectThreadId = new mongoose.Types.ObjectId(threadId);
@@ -86,15 +91,39 @@ export const sendMessage = async (userId, { threadId, content, mediaUrl, mediaTy
     const messageData = {
         threadId: objectThreadId,
         senderId: userId,
-        type: mediaUrl ? "media" : "text",
+        type: "text",
         isDeleted: false
     };
 
-    if (content?.trim()) messageData.content = content.trim();
-    if (mediaUrl) {
-        messageData.mediaUrl = mediaUrl;
-        messageData.mediaType = mediaType;
-        if (mediaMeta) messageData.mediaMeta = mediaMeta;
+    if (content?.trim()) {
+        messageData.content = content.trim();
+    }
+
+    if (attachments?.length) {
+        messageData.attachments = attachments;
+        messageData.type = "media";
+    }
+
+    if (postId) {
+        messageData.postId = postId;
+        messageData.type = "post";
+    }
+
+    if (forwardMessageId) {
+        const original = await Message.findById(forwardMessageId);
+
+        if (!original) throw new ApiError(404, "Original message not found");
+
+        messageData.forwardedFrom = {
+            messageId: original._id,
+            senderId: original.senderId
+        };
+
+        messageData.type = "forward";
+    }
+
+    if (replyTo) {
+        messageData.replyTo = replyTo;
     }
 
     const message = await Message.create(messageData);
@@ -108,8 +137,8 @@ export const sendMessage = async (userId, { threadId, content, mediaUrl, mediaTy
                 lastMessage: {
                     messageId: message._id,
                     senderId: userId,
-                    content: content?.trim() || `[${mediaType || "media"}]`,
-                    mediaType: mediaUrl ? mediaType : undefined,
+                    content: content?.trim() || (attachments?.length ? `[media]` : `[post]`),
+                    mediaType: attachments?.[0]?.type || undefined,
                     createdAt: message.createdAt
                 }
             },
@@ -125,8 +154,11 @@ export const sendMessage = async (userId, { threadId, content, mediaUrl, mediaTy
     const io = getIO();
 
     // Realtime message delivery
-    io.to(objectThreadId.toString()).emit("new_message", populatedMessage);
-
+    // io.to(objectThreadId.toString()).emit("new_message", populatedMessage);
+    io.to(objectThreadId.toString()).emit("thread_update", {
+        threadId,
+        lastMessage: populatedMessage
+    });
     // Update unread counters for other participants
 
     const receivers = thread.participants
@@ -249,4 +281,177 @@ export const addReaction = async (userId, { messageId, emoji }) => {
     });
 
     return { success: true };
+};
+
+/*===========================================
+    forward message
+================================================*/
+export const forwardMessage = async (userId, { messageId, threadId }) => {
+
+    const message = await Message.findById(messageId);
+
+    if (!message) throw new ApiError(404, "Message not found");
+
+    return sendMessage(userId, {
+        threadId,
+        forwardMessageId: messageId
+    });
+
+};
+
+/*===========================================
+   pin a message
+================================================*/
+export const pinMessage = async (userId, { messageId }) => {
+
+    const message = await Message.findById(messageId);
+
+    if (!message) throw new ApiError(404, "Message not found");
+
+    const thread = await Thread.findOne({
+        _id: message.threadId,
+        "participants.userId": userId
+    });
+
+    if (!thread) throw new ApiError(403, "Not allowed");
+
+    await Thread.updateOne(
+        { _id: message.threadId },
+        { $addToSet: { pinnedMessages: messageId } }
+    );
+
+    return { success: true };
+};
+
+
+/*===========================================
+   delete a message
+   - sender can always delete their own
+   - group admin/owner can delete any message in their group
+================================================*/
+export const deleteMessage = async (userId, { messageId }) => {
+
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+        throw new ApiError(400, "Invalid messageId");
+    }
+
+    const message = await Message.findById(messageId);
+
+    if (!message) throw new ApiError(404, "Message not found");
+
+    const thread = await Thread.findOne({
+        _id: message.threadId,
+        "participants.userId": userId
+    });
+
+    if (!thread) throw new ApiError(403, "You are not part of this conversation");
+
+    const isSender = message.senderId.toString() === userId.toString();
+
+    const isAdminOrOwner = thread.participants.some(
+        p => p.userId.toString() === userId.toString() &&
+            ["admin", "owner"].includes(p.role)
+    );
+
+    if (!isSender && !isAdminOrOwner) {
+        throw new ApiError(403, "You are not allowed to delete this message");
+    }
+
+    await Message.deleteOne({ _id: messageId });
+
+    // If this was the last message, clear it from thread metadata
+    if (thread.lastMessage?.messageId?.toString() === messageId.toString()) {
+        await Thread.updateOne(
+            { _id: message.threadId },
+            { $unset: { lastMessage: "" } }
+        );
+    }
+
+    // Remove from pinned messages if pinned
+    await Thread.updateOne(
+        { _id: message.threadId },
+        { $pull: { pinnedMessages: message._id } }
+    );
+
+    const io = getIO();
+    io.to(message.threadId.toString()).emit("message_deleted", {
+        messageId,
+        threadId: message.threadId
+    });
+
+    return { success: true };
+};
+
+/*===========================================
+   edit a message
+   - only the sender can edit
+   - only text content can be edited
+================================================*/
+export const editMessage = async (userId, { messageId, content }) => {
+
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+        throw new ApiError(400, "Invalid messageId");
+    }
+
+    if (!content?.trim()) {
+        throw new ApiError(400, "Content is required");
+    }
+
+    const message = await Message.findById(messageId);
+
+    if (!message) throw new ApiError(404, "Message not found");
+
+    if (message.senderId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only edit your own messages");
+    }
+
+    if (message.type !== "text") {
+        throw new ApiError(400, "Only text messages can be edited");
+    }
+
+    const updated = await Message.findByIdAndUpdate(
+        messageId,
+        {
+            $set: {
+                content: content.trim(),
+                isEdited: true,
+                editedAt: new Date()
+            }
+        },
+        { new: true }
+    )
+        .populate("senderId", "username")
+        .lean();
+
+    const io = getIO();
+    io.to(message.threadId.toString()).emit("message_edited", {
+        messageId,
+        content: updated.content,
+        isEdited: true,
+        editedAt: updated.editedAt,
+        threadId: message.threadId
+    });
+
+    return updated;
+};
+
+//search message
+
+export const searchMessages = async (userId, { query }) => {
+
+    const threads = await Thread.find({
+        "participants.userId": userId
+    }).select("_id");
+
+    const threadIds = threads.map(t => t._id);
+
+    const messages = await Message.find({
+        threadId: { $in: threadIds },
+        content: { $regex: query, $options: "i" }
+    })
+        .limit(20)
+        .populate("senderId", "username")
+        .lean();
+
+    return messages;
 };
